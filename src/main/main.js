@@ -391,36 +391,21 @@ function broadcast(channel, ...args) {
 
 // ─── View management ──────────────────────────────────────────────────────────
 function createView(id, url) {
-  // Only inject the preload into internal file:// pages (newtab, settings, etc.).
-  // External sites (GitHub, YouTube, Claude …) must NOT have it — injecting
-  // window.electronAPI into arbitrary third-party pages can break their JS.
-  const isInternal = url.startsWith('file://');
+  // Always inject the preload — it only adds window.electronAPI which is a
+  // harmless extra global on external sites but REQUIRED on internal pages.
+  // The previous conditional + will-navigate recreation was destroying webContents
+  // from inside their own event handler, causing the broken newtab / 00:00 clock bug.
   const view = new WebContentsView({
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      ...(isInternal && {
-        preload: path.join(__dirname, '..', 'preload', 'preload.js'),
-      }),
+      preload: path.join(__dirname, '..', 'preload', 'preload.js'),
     },
   });
 
   views.set(id, view);
   view.webContents.loadURL(url).catch(e => console.error('[kiyo] view load:', e.message));
-
-  // Re-inject preload when an existing view navigates between internal ↔ external.
-  // Electron doesn't hot-swap preloads, but we can at least warn in dev.
-  view.webContents.on('will-navigate', (_e, newUrl) => {
-    const nowInternal = newUrl.startsWith('file://');
-    if (nowInternal !== isInternal) {
-      // The view was created for one context and is navigating to the other.
-      // Close and recreate so the correct preload is applied.
-      const newId = id;
-      closeView(id);
-      createView(newId, newUrl);
-    }
-  });
 
   view.webContents.on('page-favicon-updated', (_, favs) => {
     if (favs?.length) mainWindow.webContents.send('favicon-changed', id, favs[0]);
