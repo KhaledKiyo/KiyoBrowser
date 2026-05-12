@@ -155,21 +155,43 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'ui', 'index.html'));
   mainWindow.on('resize', updateActiveViewBounds);
 
-  // ── CSP ─────────────────────────────────────────────────────────────────────
+  // ── CSP (internal pages only) ────────────────────────────────────────────────
+  // Only override CSP for internal file:// pages.
+  // External sites (YouTube, GitHub, Claude, etc.) must keep their own headers
+  // untouched — overwriting them with connect-src 'none' broke ALL network calls.
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self' file:; " +
-          "script-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; " +
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-          "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src * data:; " +
-          "connect-src 'none';",
-        ],
-      },
-    });
+    if (details.url.startsWith('file://')) {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self' file:; " +
+            "script-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; " +
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "font-src 'self' https://fonts.gstatic.com data:; " +
+            "img-src * data: blob:; " +
+            "connect-src 'self' https: wss:;",
+          ],
+        },
+      });
+    } else {
+      // External site — never touch its headers
+      callback({ responseHeaders: details.responseHeaders });
+    }
+  });
+
+  // ── Permissions ───────────────────────────────────────────────────────────────
+  // Allow standard browser permissions so sites like YouTube, Meet, etc. work.
+  const ALLOWED_PERMISSIONS = new Set([
+    'media', 'geolocation', 'notifications', 'fullscreen',
+    'pointerLock', 'openExternal', 'clipboard-read', 'clipboard-sanitized-write',
+    'idle-detection', 'payment', 'midi',
+  ]);
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) => {
+    return ALLOWED_PERMISSIONS.has(permission);
   });
 
   // ── IPC: Ready handshake (fixes boot race) ───────────────────────────────────
@@ -369,17 +391,36 @@ function broadcast(channel, ...args) {
 
 // ─── View management ──────────────────────────────────────────────────────────
 function createView(id, url) {
+  // Only inject the preload into internal file:// pages (newtab, settings, etc.).
+  // External sites (GitHub, YouTube, Claude …) must NOT have it — injecting
+  // window.electronAPI into arbitrary third-party pages can break their JS.
+  const isInternal = url.startsWith('file://');
   const view = new WebContentsView({
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      preload: path.join(__dirname, '..', 'preload', 'preload.js'),
+      ...(isInternal && {
+        preload: path.join(__dirname, '..', 'preload', 'preload.js'),
+      }),
     },
   });
 
   views.set(id, view);
   view.webContents.loadURL(url).catch(e => console.error('[kiyo] view load:', e.message));
+
+  // Re-inject preload when an existing view navigates between internal ↔ external.
+  // Electron doesn't hot-swap preloads, but we can at least warn in dev.
+  view.webContents.on('will-navigate', (_e, newUrl) => {
+    const nowInternal = newUrl.startsWith('file://');
+    if (nowInternal !== isInternal) {
+      // The view was created for one context and is navigating to the other.
+      // Close and recreate so the correct preload is applied.
+      const newId = id;
+      closeView(id);
+      createView(newId, newUrl);
+    }
+  });
 
   view.webContents.on('page-favicon-updated', (_, favs) => {
     if (favs?.length) mainWindow.webContents.send('favicon-changed', id, favs[0]);
