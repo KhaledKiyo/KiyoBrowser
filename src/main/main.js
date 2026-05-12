@@ -373,7 +373,7 @@ function createWindow() {
       } catch { }
     }
     if (sessionTabs.length > 0) {
-      writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId });
+      writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId: activeViewId });
     }
   });
 
