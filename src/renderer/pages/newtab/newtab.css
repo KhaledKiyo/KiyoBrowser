@@ -57,6 +57,12 @@ body {
   }
 }
 
+.unselectable {
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
 .clock {
   font-family: 'JetBrains Mono', monospace;
   font-size: 120px;
@@ -66,6 +72,9 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 10px;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 .greeting {

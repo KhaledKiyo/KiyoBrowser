@@ -21,6 +21,12 @@ body {
     overflow: hidden;
 }
 
+.unselectable {
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
 .history-container {
     display: flex;
     flex-direction: column;

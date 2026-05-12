@@ -21,9 +21,9 @@
             <div class="header-actions">
                 <div class="search-box">
                     <i data-lucide="search"></i>
-                    <input type="text" id="history-search" placeholder="Search history...">
+                    <input type="text" class="unselectable" id="history-search" placeholder="Search history...">
                 </div>
-                <button class="clear-btn" id="clear-history">
+                <button class="clear-btn unselectable" id="clear-history">
                     <i data-lucide="trash-2"></i>
                     Clear History
                 </button>
@@ -61,7 +61,7 @@
 
         function renderHistory(items) {
             historyList.innerHTML = '';
-            
+
             if (items.length === 0) {
                 historyList.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-dim);">No history found.</div>';
                 return;
@@ -151,7 +151,7 @@
 
         function filterHistory() {
             const q = searchInput.value.toLowerCase();
-            const filtered = allHistory.filter(h => 
+            const filtered = allHistory.filter(h =>
                 h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)
             );
             renderHistory(filtered);
