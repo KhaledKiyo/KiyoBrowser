@@ -1,6 +1,6 @@
 {
   "name": "kiyobrowser",
-  "version": "1.0.0-BETA",
+  "version": "2.0.0-BETA",
   "description": "High-performance, Arch-inspired web browser.",
   "main": "src/main/main.js",
   "scripts": {
