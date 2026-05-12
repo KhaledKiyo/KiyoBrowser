@@ -69,12 +69,9 @@ body {
   font-weight: 800;
   letter-spacing: -5px;
   background: linear-gradient(to bottom, #fff, var(--text-dim));
-  -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 10px;
-  -webkit-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
 }
 
 .greeting {

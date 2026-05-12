@@ -16,13 +16,13 @@
   <div class="mesh-bg"></div>
 
   <div class="container">
-    <div class="clock" id="clock">00:00</div>
+    <div class="clock unselectable" id="clock">00:00</div>
     <div class="greeting unselectable" id="greeting">Welcome back.</div>
 
     <div class="search-container">
       <div class="search-box">
         <i data-lucide="search"></i>
-        <input type="text" id="search-input" placeholder="Search the void..." autofocus>
+        <input type="text" class="unselectable" id="search-input" placeholder="Search the void..." autofocus>
       </div>
     </div>
 
@@ -37,11 +37,11 @@
   <div class="modal" id="add-modal" style="display: none;">
     <div class="modal-content">
       <h3>Add Quick Link</h3>
-      <input type="text" id="link-name" placeholder="Name (e.g. GitHub)">
-      <input type="text" id="link-url" placeholder="URL (e.g. github.com)">
+      <input type="text" class="unselectable" id="link-name" placeholder="Name (e.g. GitHub)">
+      <input type="text" class="unselectable" id="link-url" placeholder="URL (e.g. github.com)">
       <div class="modal-actions">
-        <button id="cancel-add">Cancel</button>
-        <button id="save-link" class="primary">Add</button>
+        <button id="cancel-add" class="unselectable">Cancel</button>
+        <button id="save-link" class="primary unselectable">Add</button>
       </div>
     </div>
   </div>
