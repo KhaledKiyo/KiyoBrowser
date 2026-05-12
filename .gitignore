@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+.DS_Store
+kiyo-settings.json
+kiyo-session.json
+kiyo-bookmarks.json
+kiyo-history.json

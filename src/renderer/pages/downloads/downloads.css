@@ -1,0 +1,164 @@
+:root {
+  --arch-blue: #00d2ff;
+  --bg-dark: #0a0b10;
+  /* unified with index.css */
+  --bg-card: #0d1117;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-main: #e6edf3;
+  --text-dim: #848d97;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-dark);
+  color: var(--text-main);
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+  padding: 60px 0;
+}
+
+.downloads-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.downloads-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.downloads-header h1 {
+  font-size: 32px;
+  font-weight: 800;
+}
+
+.downloads-header .actions {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+#clear-all {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+#clear-all:hover {
+  border-color: #ff4444;
+  color: #ff4444;
+}
+
+.downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.empty-msg {
+  color: var(--text-dim);
+  font-size: 15px;
+  text-align: center;
+  padding: 80px 0;
+}
+
+.download-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  transition: all 0.3s;
+}
+
+.download-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.download-card.completed {
+  opacity: 0.75;
+}
+
+.file-icon {
+  width: 60px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--arch-blue);
+  flex-shrink: 0;
+}
+
+.file-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.file-info {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.progress-container {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+/* Hide progress bar for completed/cancelled cards */
+.download-card.completed .progress-container {
+  display: none;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--arch-blue), #9d50bb);
+  box-shadow: 0 0 10px var(--arch-blue);
+  transition: width 0.3s ease;
+}
+
+/* Status — always visible; styled differently when done */
+.status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.status.status-done {
+  color: #4caf50;
+  font-weight: 600;
+}

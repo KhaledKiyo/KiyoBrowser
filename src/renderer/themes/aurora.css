@@ -1,0 +1,13 @@
+/* Aurora theme — Emerald */
+:root {
+  --arch-blue: #00ffcc;
+  --arch-blue-glow: rgba(0, 255, 204, 0.3);
+  --bg-dark: #051010;
+  --bg-sidebar: #081a1a;
+  --bg-card: #0a1f1f;
+  --bg-panel: #0a1f1f;
+  --bg-header: rgba(5, 16, 16, 0.8);
+  --border-color: rgba(0, 255, 204, 0.1);
+  --text-main: #e0f2f1;
+  --text-dim: #80cbc4;
+}

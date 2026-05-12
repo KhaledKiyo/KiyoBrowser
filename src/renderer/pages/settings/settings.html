@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiyo Settings</title>
+  <link rel="stylesheet" href="settings.css">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;800&display=swap"
+    rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+  <div class="settings-container">
+    <aside class="settings-sidebar">
+      <h2>Settings</h2>
+      <nav>
+        <button class="active" data-section="appearance"><i data-lucide="palette"></i> Appearance</button>
+        <button data-section="general"><i data-lucide="settings"></i> General</button>
+        <button data-section="shortcuts"><i data-lucide="keyboard"></i> Shortcuts</button>
+        <button data-section="about"><i data-lucide="info"></i> About Kiyo</button>
+      </nav>
+    </aside>
+
+    <main class="settings-main">
+      <!-- Appearance -->
+      <section id="appearance">
+        <h3>Appearance</h3>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Browser Theme</span>
+            <span class="desc">Switch between curated high-end themes.</span>
+          </div>
+          <div class="custom-select-wrapper" id="theme-wrapper">
+            <div class="custom-select-trigger" id="theme-trigger">
+              <span>Default (Arch)</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="theme-options">
+              <div class="custom-option selected" data-value="default">Default (Arch)</div>
+              <div class="custom-option" data-value="aurora">Aurora (Emerald)</div>
+              <div class="custom-option" data-value="zenith">Zenith (Purple)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Tab Style</span>
+            <span class="desc">Shape of your tab icons in the sidebar.</span>
+          </div>
+          <div class="custom-select-wrapper" id="tab-style-wrapper">
+            <div class="custom-select-trigger" id="tab-style-trigger">
+              <span>Squircle (Smooth)</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="tab-style-options">
+              <div class="custom-option selected" data-value="squircle">Squircle (Smooth)</div>
+              <div class="custom-option" data-value="square">Square (Retro)</div>
+              <div class="custom-option" data-value="circle">Circle (Minimal)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Glass Blur</span>
+            <span class="desc">Intensity of the header backdrop blur.</span>
+          </div>
+          <input type="range" id="blur-range" min="0" max="60" value="25">
+        </div>
+      </section>
+
+      <!-- General -->
+      <section id="general" style="display: none;">
+        <h3>General</h3>
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Search Engine</span>
+            <span class="desc">Default provider for address bar and new tab searches.</span>
+          </div>
+          <div class="custom-select-wrapper" id="search-engine-wrapper">
+            <div class="custom-select-trigger" id="search-engine-trigger">
+              <span>Google</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="search-engine-options">
+              <div class="custom-option selected" data-value="google">Google</div>
+              <div class="custom-option" data-value="bing">Bing</div>
+              <div class="custom-option" data-value="duckduckgo">DuckDuckGo</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Shortcuts -->
+      <section id="shortcuts" style="display: none;">
+        <h3>Keyboard Shortcuts</h3>
+        <table class="shortcut-table">
+          <tr>
+            <td>New tab</td>
+            <td><kbd>Ctrl+T</kbd></td>
+          </tr>
+          <tr>
+            <td>Close tab</td>
+            <td><kbd>Ctrl+W</kbd></td>
+          </tr>
+          <tr>
+            <td>Focus address bar</td>
+            <td><kbd>Ctrl+L</kbd></td>
+          </tr>
+          <tr>
+            <td>Reload</td>
+            <td><kbd>Ctrl+R</kbd></td>
+          </tr>
+          <tr>
+            <td>Hard reload</td>
+            <td><kbd>Ctrl+Shift+R</kbd></td>
+          </tr>
+          <tr>
+            <td>Go back</td>
+            <td><kbd>Alt+←</kbd></td>
+          </tr>
+          <tr>
+            <td>Go forward</td>
+            <td><kbd>Alt+→</kbd></td>
+          </tr>
+          <tr>
+            <td>Bookmark page</td>
+            <td><kbd>Ctrl+D</kbd></td>
+          </tr>
+          <tr>
+            <td>Bookmarks</td>
+            <td><kbd>Ctrl+B</kbd></td>
+          </tr>
+          <tr>
+            <td>History</td>
+            <td><kbd>Ctrl+H</kbd></td>
+          </tr>
+          <tr>
+            <td>Downloads</td>
+            <td><kbd>Ctrl+Shift+J</kbd></td>
+          </tr>
+          <tr>
+            <td>Settings</td>
+            <td><kbd>Ctrl+,</kbd></td>
+          </tr>
+        </table>
+      </section>
+
+      <!-- About -->
+      <section id="about" style="display: none;">
+        <h3>About Kiyo</h3>
+        <div class="about-card">
+          <div class="logo-large">K</div>
+          <div class="version-info">
+            <h4>Kiyo Browser</h4>
+            <p>Version 1.0.0-BETA</p>
+            <p>Built by KiyoDev</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    // Track whether user currently has a dropdown open — don't reset mid-interaction
+    let isDropdownOpen = false;
+
+    function setupCustomSelect(wrapperId, settingKey) {
+      const wrapper = document.getElementById(wrapperId);
+      const trigger = wrapper.querySelector('.custom-select-trigger');
+      const optionsEl = wrapper.querySelector('.custom-options');
+      const optionItems = wrapper.querySelectorAll('.custom-option');
+
+      trigger.onclick = e => {
+        e.stopPropagation();
+        const wasOpen = optionsEl.classList.contains('open');
+        closeAllDropdowns();
+        if (!wasOpen) {
+          optionsEl.classList.add('open');
+          trigger.classList.add('open');
+          isDropdownOpen = true;
+        }
+      };
+
+      optionItems.forEach(item => {
+        item.onclick = () => {
+          optionItems.forEach(o => o.classList.remove('selected'));
+          item.classList.add('selected');
+          trigger.querySelector('span').textContent = item.textContent;
+          window.electronAPI.updateSetting(settingKey, item.dataset.value);
+          closeAllDropdowns();
+        };
+      });
+    }
+
+    function closeAllDropdowns() {
+      document.querySelectorAll('.custom-options').forEach(o => o.classList.remove('open'));
+      document.querySelectorAll('.custom-select-trigger').forEach(t => t.classList.remove('open'));
+      isDropdownOpen = false;
+    }
+
+    window.onclick = closeAllDropdowns;
+
+    setupCustomSelect('theme-wrapper', 'theme');
+    setupCustomSelect('tab-style-wrapper', 'tabStyle');
+    setupCustomSelect('search-engine-wrapper', 'searchEngine');
+
+    function applySettingsToUI(s, fromExternalBroadcast = false) {
+      // Don't reset dropdowns while the user is actively interacting with one
+      if (fromExternalBroadcast && isDropdownOpen) return;
+
+      // Apply theme CSS
+      const old = document.getElementById('kiyo-theme-link');
+      if (old) old.remove();
+      if (s.theme && s.theme !== 'default') {
+        const link = document.createElement('link');
+        link.id = 'kiyo-theme-link';
+        link.rel = 'stylesheet';
+        link.href = `../../themes/${s.theme}.css`;
+        document.head.appendChild(link);
+      }
+
+      // Sync dropdowns to current values
+      if (s.theme) syncDropdown('theme-options', 'theme-trigger', s.theme);
+      if (s.tabStyle) syncDropdown('tab-style-options', 'tab-style-trigger', s.tabStyle);
+      if (s.searchEngine) syncDropdown('search-engine-options', 'search-engine-trigger', s.searchEngine);
+      if (s.blurIntensity !== undefined) document.getElementById('blur-range').value = s.blurIntensity;
+    }
+
+    function syncDropdown(optionsId, triggerId, value) {
+      const item = document.querySelector(`#${optionsId} [data-value="${value}"]`);
+      if (!item) return;
+      document.querySelectorAll(`#${optionsId} .custom-option`).forEach(o => o.classList.remove('selected'));
+      item.classList.add('selected');
+      document.querySelector(`#${triggerId} span`).textContent = item.textContent;
+    }
+
+    window.electronAPI.getSettings().then(s => applySettingsToUI(s, false));
+    window.electronAPI.onThemeUpdated(s => applySettingsToUI(s, true));
+
+    document.getElementById('blur-range').oninput = e =>
+      window.electronAPI.updateSetting('blurIntensity', parseInt(e.target.value));
+
+    document.querySelectorAll('.settings-sidebar button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelector('.settings-sidebar button.active').classList.remove('active');
+        btn.classList.add('active');
+        const sec = btn.dataset.section;
+        document.querySelectorAll('.settings-main section').forEach(s => {
+          s.style.display = s.id === sec ? 'block' : 'none';
+        });
+      };
+    });
+  </script>
+</body>
+
+</html>

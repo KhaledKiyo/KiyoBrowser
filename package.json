@@ -1,0 +1,12 @@
+{
+  "name": "kiyobrowser",
+  "version": "1.0.0-BETA",
+  "description": "High-performance, Arch-inspired web browser.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.0.1"
+  }
+}

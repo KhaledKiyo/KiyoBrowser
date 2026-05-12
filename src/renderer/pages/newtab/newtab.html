@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Tab | Kiyo</title>
+  <link rel="stylesheet" href="newtab.css">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;600;800&display=swap"
+    rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+  <div class="mesh-bg"></div>
+
+  <div class="container">
+    <div class="clock" id="clock">00:00</div>
+    <div class="greeting" id="greeting">Welcome back.</div>
+
+    <div class="search-container">
+      <div class="search-box">
+        <i data-lucide="search"></i>
+        <input type="text" id="search-input" placeholder="Search the void..." autofocus>
+      </div>
+    </div>
+
+    <div class="quick-links" id="links-grid"></div>
+
+    <div class="add-link-trigger">
+      <button id="show-add-modal"><i data-lucide="plus"></i> Add Link</button>
+    </div>
+  </div>
+
+  <!-- Add Link Modal -->
+  <div class="modal" id="add-modal" style="display: none;">
+    <div class="modal-content">
+      <h3>Add Quick Link</h3>
+      <input type="text" id="link-name" placeholder="Name (e.g. GitHub)">
+      <input type="text" id="link-url" placeholder="URL (e.g. github.com)">
+      <div class="modal-actions">
+        <button id="cancel-add">Cancel</button>
+        <button id="save-link" class="primary">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Theme ──────────────────────────────────────────────────────────────────
+    let currentSearchEngine = 'google';
+
+    function getSearchUrl(query) {
+      const q = encodeURIComponent(query);
+      const engines = {
+        google: `https://www.google.com/search?q=${q}`,
+        bing: `https://www.bing.com/search?q=${q}`,
+        duckduckgo: `https://duckduckgo.com/?q=${q}`,
+      };
+      return engines[currentSearchEngine] || engines.google;
+    }
+
+    function applyTheme(settings) {
+      currentSearchEngine = settings.searchEngine || 'google';
+      const old = document.getElementById('kiyo-theme-link');
+      if (old) old.remove();
+      if (settings.theme && settings.theme !== 'default') {
+        const link = document.createElement('link');
+        link.id = 'kiyo-theme-link';
+        link.rel = 'stylesheet';
+        link.href = `../../themes/${settings.theme}.css`;
+        document.head.appendChild(link);
+      }
+    }
+
+    window.electronAPI.getSettings().then(applyTheme);
+    window.electronAPI.onThemeUpdated(applyTheme);
+
+    // ── Clock + Greeting ───────────────────────────────────────────────────────
+    function updateClock() {
+      const now = new Date();
+      const h = now.getHours();
+      const pad = n => String(n).padStart(2, '0');
+      document.getElementById('clock').textContent = `${pad(h)}:${pad(now.getMinutes())}`;
+      const greet = h < 5 ? 'Burning the midnight oil.' : h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : h < 21 ? 'Good evening.' : 'Night owl mode.';
+      document.getElementById('greeting').textContent = greet;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // ── Quick Links ────────────────────────────────────────────────────────────
+    const DEFAULT_LINKS = [
+      { name: 'GitHub', url: 'https://github.com', icon: 'https://www.google.com/s2/favicons?sz=64&domain=github.com' },
+      { name: 'YouTube', url: 'https://youtube.com', icon: 'https://www.google.com/s2/favicons?sz=64&domain=youtube.com' },
+      { name: 'Reddit', url: 'https://reddit.com', icon: 'https://www.google.com/s2/favicons?sz=64&domain=reddit.com' },
+      { name: 'Arch Wiki', url: 'https://wiki.archlinux.org', icon: 'https://www.google.com/s2/favicons?sz=64&domain=archlinux.org' },
+    ];
+
+    const grid = document.getElementById('links-grid');
+    const addModal = document.getElementById('add-modal');
+
+    function getLinks() {
+      const saved = localStorage.getItem('kiyo_links');
+      return saved ? JSON.parse(saved) : DEFAULT_LINKS;
+    }
+
+    function saveLinks(links) {
+      localStorage.setItem('kiyo_links', JSON.stringify(links));
+    }
+
+    function renderLinks(links) {
+      grid.innerHTML = '';
+      links.forEach((link, index) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'link-card-wrapper';
+        let hostname = '';
+        try { hostname = new URL(link.url).hostname; } catch { }
+        wrapper.innerHTML = `
+          <a href="${link.url}" class="link-card">
+            <div class="link-icon">
+              <img src="${link.icon || `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`}"
+                   alt="${link.name}"
+                   onerror="this.src='https://www.google.com/s2/favicons?sz=64&domain=${hostname}'">
+            </div>
+            <span>${link.name}</span>
+          </a>
+          <button class="remove-link" aria-label="Remove ${link.name}"><i data-lucide="x"></i></button>
+        `;
+        wrapper.querySelector('.remove-link').addEventListener('click', () => {
+          const current = getLinks();
+          current.splice(index, 1);
+          saveLinks(current);
+          renderLinks(current);
+        });
+        grid.appendChild(wrapper);
+      });
+      lucide.createIcons();
+    }
+
+    function loadLinks() { renderLinks(getLinks()); }
+    loadLinks();
+
+    // ── Modal ──────────────────────────────────────────────────────────────────
+    document.getElementById('show-add-modal').addEventListener('click', () => addModal.style.display = 'flex');
+    document.getElementById('cancel-add').addEventListener('click', () => addModal.style.display = 'none');
+    addModal.addEventListener('click', e => { if (e.target === addModal) addModal.style.display = 'none'; });
+
+    document.getElementById('save-link').addEventListener('click', () => {
+      const name = document.getElementById('link-name').value.trim();
+      let url = document.getElementById('link-url').value.trim();
+      if (!name || !url) return;
+      if (!url.startsWith('http')) url = 'https://' + url;
+      let hostname = '';
+      try { hostname = new URL(url).hostname; } catch { }
+      const icon = `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`;
+      const links = getLinks();
+      links.push({ name, url, icon });
+      saveLinks(links);
+      renderLinks(links);
+      addModal.style.display = 'none';
+      document.getElementById('link-name').value = '';
+      document.getElementById('link-url').value = '';
+    });
+
+    // ── Search — uses the user's configured search engine ──────────────────────
+    document.getElementById('search-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const val = e.target.value.trim();
+        if (val) window.location.href = getSearchUrl(val);
+      }
+    });
+  </script>
+</body>
+
+</html>

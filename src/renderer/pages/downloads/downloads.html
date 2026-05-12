@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Downloads | Kiyo</title>
+  <link rel="stylesheet" href="downloads.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+  <div class="downloads-container">
+    <header class="downloads-header">
+      <h1>Downloads</h1>
+      <div class="actions">
+        <button id="clear-all">Clear History</button>
+      </div>
+    </header>
+
+    <main class="downloads-list" id="downloads-grid">
+      <div class="empty-msg" id="empty-msg">No downloads yet</div>
+    </main>
+  </div>
+
+  <script>
+    lucide.createIcons();
+    const grid = document.getElementById('downloads-grid');
+    const emptyMsg = document.getElementById('empty-msg');
+
+    function getFileIcon(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      if (['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) return 'film';
+      if (['mp3', 'flac', 'wav', 'ogg', 'aac'].includes(ext)) return 'music';
+      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image';
+      if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) return 'archive';
+      if (['pdf'].includes(ext)) return 'file-text';
+      if (['exe', 'dmg', 'pkg', 'deb', 'rpm', 'appimage'].includes(ext)) return 'package';
+      return 'file';
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function createDownloadCard(name, progress, state) {
+      emptyMsg.style.display = 'none';
+      // Remove existing card for same file if re-downloading
+      const existing = document.getElementById(`dl-${CSS.escape(name)}`);
+      if (existing) existing.remove();
+
+      const card = document.createElement('div');
+      card.className = `download-card ${state === 'completed' ? 'completed' : ''}`;
+      card.id = `dl-${CSS.escape(name)}`;
+
+      const pct = Math.round(progress * 100);
+      const icon = getFileIcon(name);
+
+      card.innerHTML = `
+        <div class="file-icon"><i data-lucide="${icon}"></i></div>
+        <div class="file-info">
+          <div class="file-name">${name}</div>
+          <div class="file-meta">${new Date().toLocaleTimeString()}</div>
+          <div class="progress-container">
+            <div class="progress-bar" style="width: ${pct}%;"></div>
+          </div>
+          <div class="status ${state === 'completed' ? 'status-done' : ''}">${state === 'completed' ? '✓ Completed' : state === 'cancelled' ? '✗ Cancelled' : pct + '%'
+        }</div>
+        </div>
+      `;
+      grid.prepend(card);
+      lucide.createIcons();
+    }
+
+    function updateCard(name, progress, state) {
+      const card = document.getElementById(`dl-${CSS.escape(name)}`);
+      if (card) {
+        if (state === 'completed' || state === 'cancelled') card.classList.add('completed');
+        const bar = card.querySelector('.progress-bar');
+        if (bar) bar.style.width = `${Math.round(progress * 100)}%`;
+        const status = card.querySelector('.status');
+        if (status) {
+          status.textContent = state === 'completed' ? '✓ Completed'
+            : state === 'cancelled' ? '✗ Cancelled'
+              : Math.round(progress * 100) + '%';
+          if (state === 'completed' || state === 'cancelled') {
+            status.classList.add('status-done');
+            card.classList.add('completed');
+          }
+        }
+      } else {
+        createDownloadCard(name, progress, state);
+      }
+    }
+
+    // Load existing downloads
+    window.electronAPI.getDownloads().then(downloads => {
+      if (downloads.length > 0) {
+        emptyMsg.style.display = 'none';
+        downloads.forEach(dl => createDownloadCard(dl.name, dl.progress, dl.state));
+      }
+    });
+
+    // Live events
+    window.electronAPI.onDownloadStarted(name => {
+      emptyMsg.style.display = 'none';
+      createDownloadCard(name, 0, 'progressing');
+    });
+
+    window.electronAPI.onDownloadProgress((name, progress) => {
+      updateCard(name, progress, 'progressing');
+    });
+
+    window.electronAPI.onDownloadCompleted((name, state) => {
+      updateCard(name, 1, state);
+    });
+
+    window.electronAPI.onDownloadsCleared(() => {
+      grid.innerHTML = '';
+      grid.appendChild(emptyMsg);
+      emptyMsg.style.display = '';
+    });
+
+    // Clear history button — was missing event listener
+    document.getElementById('clear-all').addEventListener('click', () => {
+      window.electronAPI.clearDownloads();
+    });
+
+    // Theme integration — now uses accentColor from settings
+    function applyTheme(settings) {
+      if (settings.accentColor) {
+        document.documentElement.style.setProperty('--arch-blue', settings.accentColor);
+      }
+      // Apply theme CSS if not default
+      const old = document.getElementById('kiyo-theme-link');
+      if (old) old.remove();
+      if (settings.theme && settings.theme !== 'default') {
+        const link = document.createElement('link');
+        link.id = 'kiyo-theme-link';
+        link.rel = 'stylesheet';
+        link.href = `../../themes/${settings.theme}.css`;
+        document.head.appendChild(link);
+      }
+    }
+    window.electronAPI.getSettings().then(applyTheme);
+    window.electronAPI.onThemeUpdated(applyTheme);
+  </script>
+</body>
+
+</html>

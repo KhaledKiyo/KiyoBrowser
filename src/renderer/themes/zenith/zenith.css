@@ -1,0 +1,13 @@
+/* Zenith theme — Purple */
+:root {
+  --arch-blue: #9d50bb;
+  --arch-blue-glow: rgba(157, 80, 187, 0.3);
+  --bg-dark: #0f0a1a;
+  --bg-sidebar: #160d26;
+  --bg-card: #1a1030;
+  --bg-panel: #1a1030;
+  --bg-header: rgba(15, 10, 26, 0.85);
+  --border-color: rgba(157, 80, 187, 0.15);
+  --text-main: #f3e5f5;
+  --text-dim: #b39ddb;
+}

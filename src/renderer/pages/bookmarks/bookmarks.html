@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookmarks | Kiyo</title>
+    <link rel="stylesheet" href="bookmarks.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <div class="page-container">
+        <header class="page-header">
+            <h1><i data-lucide="bookmark"></i> Bookmarks</h1>
+            <div class="actions">
+                <div class="search-box">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="search-input" placeholder="Filter bookmarks...">
+                </div>
+            </div>
+        </header>
+
+        <main id="bookmarks-grid">
+            <div class="empty-msg" id="empty-msg">No bookmarks yet — star a page with Ctrl+D</div>
+        </main>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        let allBookmarks = [];
+        const grid = document.getElementById('bookmarks-grid');
+        const emptyMsg = document.getElementById('empty-msg');
+
+        function getFavicon(url) {
+            try { return `https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}`; }
+            catch { return ''; }
+        }
+
+        function timeAgo(ts) {
+            const s = Math.floor((Date.now() - ts) / 1000);
+            if (s < 60) return 'just now';
+            if (s < 3600) return Math.floor(s / 60) + 'm ago';
+            if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+            return Math.floor(s / 86400) + 'd ago';
+        }
+
+        function render(bookmarks) {
+            const existing = grid.querySelectorAll('.bookmark-card');
+            existing.forEach(e => e.remove());
+            if (bookmarks.length === 0) {
+                emptyMsg.style.display = '';
+                return;
+            }
+            emptyMsg.style.display = 'none';
+            bookmarks.forEach(bm => {
+                const card = document.createElement('div');
+                card.className = 'bookmark-card';
+                card.innerHTML = `
+          <img class="bm-favicon" src="${getFavicon(bm.url)}" alt="" onerror="this.style.display='none'">
+          <div class="bm-info">
+            <a class="bm-title" href="${bm.url}">${bm.title || bm.url}</a>
+            <span class="bm-url">${bm.url}</span>
+          </div>
+          <div class="bm-meta">${timeAgo(bm.addedAt)}</div>
+          <button class="bm-remove" data-url="${bm.url}" title="Remove bookmark"><i data-lucide="x"></i></button>
+        `;
+                card.querySelector('.bm-remove').addEventListener('click', e => {
+                    e.stopPropagation();
+                    window.electronAPI.removeBookmark(bm.url);
+                });
+                grid.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        async function load() {
+            allBookmarks = await window.electronAPI.getBookmarks();
+            render(allBookmarks);
+        }
+
+        load();
+
+        window.electronAPI.onBookmarksUpdated(bm => {
+            allBookmarks = bm;
+            const query = document.getElementById('search-input').value.toLowerCase();
+            render(query ? allBookmarks.filter(b => b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query)) : allBookmarks);
+        });
+
+        document.getElementById('search-input').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            render(q ? allBookmarks.filter(b => (b.title || '').toLowerCase().includes(q) || b.url.toLowerCase().includes(q)) : allBookmarks);
+        });
+
+        function applyTheme(s) {
+            const old = document.getElementById('kiyo-theme-link');
+            if (old) old.remove();
+            if (s.theme && s.theme !== 'default') {
+                const link = document.createElement('link');
+                link.id = 'kiyo-theme-link'; link.rel = 'stylesheet';
+                link.href = `../../themes/${s.theme}.css`;
+                document.head.appendChild(link);
+            }
+        }
+        window.electronAPI.getSettings().then(applyTheme);
+        window.electronAPI.onThemeUpdated(applyTheme);
+    </script>
+</body>
+
+</html>

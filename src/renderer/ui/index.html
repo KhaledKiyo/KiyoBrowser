@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiyo Browser</title>
+  <link rel="stylesheet" href="index.css">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+  <div class="browser-container">
+    <aside class="browser-sidebar">
+      <div class="sidebar-top">
+        <div class="logo">K</div>
+      </div>
+
+      <div class="tabs-list" id="tabs-bar">
+        <!-- Vertical tabs injected by renderer.js -->
+      </div>
+
+      <div class="sidebar-bottom">
+        <button class="side-btn" id="add-tab-btn" title="New Tab (Ctrl+T)"><i data-lucide="plus"></i></button>
+        <button class="side-btn" id="bookmarks-btn" title="Bookmarks (Ctrl+B)"><i data-lucide="bookmark"></i></button>
+        <button class="side-btn" id="history-btn" title="History (Ctrl+H)"><i data-lucide="clock"></i></button>
+        <button class="side-btn" id="downloads-toggle" title="Downloads (Ctrl+Shift+J)">
+          <i data-lucide="download"></i>
+          <span class="badge" id="download-badge" style="display: none;"></span>
+        </button>
+        <button class="side-btn" id="menu-btn" title="Settings (Ctrl+,)"><i data-lucide="command"></i></button>
+      </div>
+    </aside>
+
+    <div class="browser-main">
+      <header class="floating-header">
+        <div class="nav-cluster">
+          <button id="back-btn" title="Back (Alt+Left)"><i data-lucide="arrow-left"></i></button>
+          <button id="forward-btn" title="Forward (Alt+Right)"><i data-lucide="arrow-right"></i></button>
+          <button id="reload-btn" title="Reload (Ctrl+R)"><i data-lucide="rotate-cw"></i></button>
+        </div>
+
+        <div class="url-pill">
+          <span class="url-icon" id="security-indicator"><i data-lucide="globe"></i></span>
+          <input type="text" id="url-input" placeholder="Search the void or enter a URL..." spellcheck="false">
+          <div class="loading-bar" id="loader" style="display: none;"></div>
+        </div>
+
+        <button class="side-btn bookmark-star" id="bookmark-star-btn" title="Bookmark this page (Ctrl+D)">
+          <i data-lucide="star"></i>
+        </button>
+      </header>
+
+      <main id="browser-content">
+        <div class="initial-load-placeholder">
+          <div class="spinner"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+  <script>lucide.createIcons();</script>
+</body>
+
+</html>
