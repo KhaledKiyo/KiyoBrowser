@@ -169,18 +169,23 @@
             loadHistory();
         });
 
-        // Initialize Theme integration
-        async function initTheme() {
-            const settings = await window.electronAPI.getSettings();
+        // Theme integration — match pattern used by all other internal pages
+        function applyTheme(settings) {
+            const old = document.getElementById('kiyo-theme-link');
+            if (old) old.remove();
             if (settings.theme && settings.theme !== 'default') {
                 const link = document.createElement('link');
+                link.id = 'kiyo-theme-link';
                 link.rel = 'stylesheet';
                 link.href = `../../themes/${settings.theme}.css`;
                 document.head.appendChild(link);
             }
         }
 
-        initTheme();
+        // Bug #10 fix: subscribe to live theme changes (was missing — only called initTheme() once)
+        window.electronAPI.getSettings().then(applyTheme);
+        window.electronAPI.onThemeUpdated(applyTheme);
+
         loadHistory();
     </script>
 </body>

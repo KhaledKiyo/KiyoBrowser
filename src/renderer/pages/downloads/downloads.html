@@ -29,6 +29,13 @@
     const grid = document.getElementById('downloads-grid');
     const emptyMsg = document.getElementById('empty-msg');
 
+    // Bug #3: escape filenames before injecting into innerHTML
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
     function getFileIcon(name) {
       const ext = name.split('.').pop().toLowerCase();
       if (['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) return 'film';
@@ -61,9 +68,9 @@
       const icon = getFileIcon(name);
 
       card.innerHTML = `
-        <div class="file-icon"><i data-lucide="${icon}"></i></div>
+        <div class="file-icon"><i data-lucide="${esc(icon)}"></i></div>
         <div class="file-info">
-          <div class="file-name">${name}</div>
+          <div class="file-name">${esc(name)}</div>
           <div class="file-meta">${new Date().toLocaleTimeString()}</div>
           <div class="progress-container">
             <div class="progress-bar" style="width: ${pct}%;"></div>

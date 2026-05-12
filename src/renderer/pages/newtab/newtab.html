@@ -96,16 +96,30 @@
       { name: 'Arch Wiki', url: 'https://wiki.archlinux.org', icon: 'https://www.google.com/s2/favicons?sz=64&domain=archlinux.org' },
     ];
 
+    // Bug #3: escape user-supplied strings before inserting into innerHTML
+    function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
     const grid = document.getElementById('links-grid');
     const addModal = document.getElementById('add-modal');
+    let _links = [];
 
-    function getLinks() {
-      const saved = localStorage.getItem('kiyo_links');
-      return saved ? JSON.parse(saved) : DEFAULT_LINKS;
+    // Bug #4: load from IPC (userData JSON), fall back to migrating existing localStorage data
+    async function loadLinks() {
+      let saved = await window.electronAPI.getQuickLinks();
+      if (!saved) {
+        // Migrate from localStorage (one-time)
+        const lsData = localStorage.getItem('kiyo_links');
+        saved = lsData ? JSON.parse(lsData) : DEFAULT_LINKS;
+        window.electronAPI.saveQuickLinks(saved);
+        localStorage.removeItem('kiyo_links');
+      }
+      _links = saved;
+      renderLinks(_links);
     }
 
     function saveLinks(links) {
-      localStorage.setItem('kiyo_links', JSON.stringify(links));
+      _links = links;
+      window.electronAPI.saveQuickLinks(links);
     }
 
     function renderLinks(links) {
@@ -115,19 +129,23 @@
         wrapper.className = 'link-card-wrapper';
         let hostname = '';
         try { hostname = new URL(link.url).hostname; } catch { }
+        // Bug #3: escape name to prevent XSS from crafted link names
         wrapper.innerHTML = `
-          <a href="${link.url}" class="link-card">
+          <div class="link-card" style="cursor:pointer">
             <div class="link-icon">
-              <img src="${link.icon || `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`}"
-                   alt="${link.name}"
-                   onerror="this.src='https://www.google.com/s2/favicons?sz=64&domain=${hostname}'">
+              <img src="${esc(link.icon || `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`)}"
+                   alt="${esc(link.name)}"
+                   onerror="this.src='https://www.google.com/s2/favicons?sz=64&domain=${esc(hostname)}'">
             </div>
-            <span>${link.name}</span>
-          </a>
-          <button class="remove-link" aria-label="Remove ${link.name}"><i data-lucide="x"></i></button>
+            <span>${esc(link.name)}</span>
+          </div>
+          <button class="remove-link" aria-label="Remove ${esc(link.name)}"><i data-lucide="x"></i></button>
         `;
+        wrapper.querySelector('.link-card').addEventListener('click', () => {
+          window.electronAPI.navigate(link.url);
+        });
         wrapper.querySelector('.remove-link').addEventListener('click', () => {
-          const current = getLinks();
+          const current = [..._links];
           current.splice(index, 1);
           saveLinks(current);
           renderLinks(current);
@@ -137,7 +155,6 @@
       lucide.createIcons();
     }
 
-    function loadLinks() { renderLinks(getLinks()); }
     loadLinks();
 
     // ── Modal ──────────────────────────────────────────────────────────────────
@@ -153,8 +170,7 @@
       let hostname = '';
       try { hostname = new URL(url).hostname; } catch { }
       const icon = `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`;
-      const links = getLinks();
-      links.push({ name, url, icon });
+      const links = [..._links, { name, url, icon }];
       saveLinks(links);
       renderLinks(links);
       addModal.style.display = 'none';
@@ -162,11 +178,11 @@
       document.getElementById('link-url').value = '';
     });
 
-    // ── Search — uses the user's configured search engine ──────────────────────
+    // ── Search — Bug #15: use electronAPI.navigate so resolveUrl + security indicator fire correctly
     document.getElementById('search-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         const val = e.target.value.trim();
-        if (val) window.location.href = getSearchUrl(val);
+        if (val) window.electronAPI.navigate(val);
       }
     });
   </script>

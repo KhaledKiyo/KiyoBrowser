@@ -39,6 +39,7 @@ const SETTINGS_PATH = path.join(DATA_DIR, 'kiyo-settings.json');
 const SESSION_PATH = path.join(DATA_DIR, 'kiyo-session.json');
 const BOOKMARKS_PATH = path.join(DATA_DIR, 'kiyo-bookmarks.json');
 const HISTORY_PATH = path.join(DATA_DIR, 'kiyo-history.json');
+const QUICKLINKS_PATH = path.join(DATA_DIR, 'kiyo-quicklinks.json');
 
 const SETTINGS_DEFAULTS = {
   theme: 'default',
@@ -220,6 +221,7 @@ function createWindow() {
   ipcMain.on('update-geometry', (event, geometry) => {
     if (SETTING_SCHEMA.geometry(geometry)) {
       settings.geometry = geometry;
+      saveSettings(); // Bug #7 fix: persist geometry to disk
       updateActiveViewBounds();
     }
   });
@@ -269,21 +271,41 @@ function createWindow() {
 
   // ── IPC: Themes ─────────────────────────────────────────────────────────────
   ipcMain.handle('get-available-themes', () => {
+    // Bug #12 fix: scan both top-level .css files AND subdirectory themes (e.g. aurora/aurora.css)
     const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
     if (!fs.existsSync(themesPath)) return [];
-    return fs.readdirSync(themesPath)
-      .filter(f => f.endsWith('.css'))
-      .map(f => {
-        const name = f.replace('.css', '');
-        // Try meta.json in same dir for richer info
+    const seen = new Set();
+    const results = [];
+    for (const entry of fs.readdirSync(themesPath, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.css')) {
+        const name = entry.name.replace('.css', '');
+        if (seen.has(name)) continue;
+        seen.add(name);
+        const metaPath = path.join(themesPath, 'meta.json');
+        if (fs.existsSync(metaPath)) {
+          try { results.push(JSON.parse(fs.readFileSync(metaPath, 'utf8'))); continue; } catch { }
+        }
+        results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1), accentColor: null });
+      }
+      if (entry.isDirectory()) {
+        const name = entry.name;
+        if (seen.has(name)) continue;
+        const cssPath = path.join(themesPath, name, name + '.css');
+        if (!fs.existsSync(cssPath)) continue;
+        seen.add(name);
         const metaPath = path.join(themesPath, name, 'meta.json');
         if (fs.existsSync(metaPath)) {
-          try { return JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch { }
+          try { results.push(JSON.parse(fs.readFileSync(metaPath, 'utf8'))); continue; } catch { }
         }
-        // Fall back to filename-derived meta
-        return { id: name, name: name.charAt(0).toUpperCase() + name.slice(1), accentColor: null };
-      });
+        results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1), accentColor: null });
+      }
+    }
+    return results;
   });
+
+  // Bug #4 fix: quick-links stored in userData JSON, not localStorage
+  ipcMain.handle('get-quick-links', () => readJSON(QUICKLINKS_PATH, null));
+  ipcMain.on('save-quick-links', (_, links) => writeJSON(QUICKLINKS_PATH, links));
 
   // ── IPC: Tabs ───────────────────────────────────────────────────────────────
   ipcMain.on('create-tab', (event, id, url) => {
@@ -338,6 +360,21 @@ function createWindow() {
   // ── IPC: Session save/restore ────────────────────────────────────────────────
   ipcMain.on('save-session', (_, sessionData) => {
     writeJSON(SESSION_PATH, sessionData);
+  });
+
+  // Bug #5: save session from main process on window close (covers Alt+F4 / OS close)
+  mainWindow.on('close', () => {
+    const sessionTabs = [];
+    for (const [tabId, view] of views) {
+      try {
+        if (!view.webContents.isDestroyed()) {
+          sessionTabs.push({ id: tabId, url: view.webContents.getURL() || 'home' });
+        }
+      } catch { }
+    }
+    if (sessionTabs.length > 0) {
+      writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId });
+    }
   });
 
   // ── Download tracking ────────────────────────────────────────────────────────
@@ -414,15 +451,16 @@ function createView(id, url) {
   view.webContents.on('did-navigate', (_, u) => {
     const uiUrl = getUIUrl(u);
     mainWindow.webContents.send('url-changed', id, uiUrl);
-    // Record history (title not yet available — updated on title event)
-    if (activeViewId === id) {
-      const title = view.webContents.getTitle();
-      pushHistory(u, title);
-    }
+    // Bug #6 fix: push with empty title — page-title-updated will fill it in retroactively
+    if (activeViewId === id) pushHistory(u, '');
   });
 
-  view.webContents.on('did-navigate-in-page', (_, u) => {
+  view.webContents.on('did-navigate-in-page', (_, u, isMainFrame) => {
     mainWindow.webContents.send('url-changed', id, getUIUrl(u));
+    // Bug #19 fix: record SPA (History API) navigations in history
+    if (isMainFrame && activeViewId === id && !u.startsWith('file://')) {
+      pushHistory(u, view.webContents.getTitle());
+    }
   });
 
   view.webContents.on('page-title-updated', (_, title) => {
@@ -433,6 +471,12 @@ function createView(id, url) {
     if (t.includes('bookmarks.html')) t = 'Bookmarks';
     if (t.includes('history.html')) t = 'History';
     mainWindow.webContents.send('title-changed', id, t);
+    // Bug #6 fix: retroactively update the history entry title once the page title is known
+    const currentUrl = view.webContents.getURL();
+    if (currentUrl && !currentUrl.startsWith('file://')) {
+      const entry = history.find(h => h.url === currentUrl && (!h.title || h.title === ''));
+      if (entry) { entry.title = title; saveHistory(); }
+    }
   });
 
   view.webContents.on('did-start-loading', () => mainWindow.webContents.send('loading-status', id, true));

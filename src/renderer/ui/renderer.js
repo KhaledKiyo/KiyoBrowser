@@ -27,6 +27,13 @@ const tabs = new Map(); // id → { title, url, favicon }
 let _tabCounter = 0;
 function nextTabId() { return 'tab-' + (++_tabCounter); }
 
+// Bug #20: track favicon load timers per tab so they can be cancelled on tab close
+const _faviconTimers = new Map();
+
+// Bug #23: prevent double-click race from creating an orphan DOM tab
+let _tabCreating = false;
+
+
 // ─── Theme ────────────────────────────────────────────────────────────────────
 function applyTheme(s) {
   const old = document.getElementById('kiyo-theme-link');
@@ -71,7 +78,10 @@ window.electronAPI.onTabMenuAction((id, action) => {
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 function createTab(url = null, existingId = null) {
+  // Bug #23: guard against double-click creating an orphan DOM tab
+  if (_tabCreating) return;
   if (tabs.size >= MAX_TABS) { showToast('Tab limit reached (' + MAX_TABS + ' max)', 'error'); return; }
+  _tabCreating = true;
   const id = existingId || nextTabId();
   window.electronAPI.createTab(id, url);
 
@@ -90,6 +100,7 @@ function createTab(url = null, existingId = null) {
   switchTab(id);
   updateAddTabButton();
   saveSession();
+  _tabCreating = false;
   return id;
 }
 
@@ -108,6 +119,8 @@ function closeTab(id) {
   window.electronAPI.closeTab(id);
   document.getElementById(`tab-${id}`)?.remove();
   tabs.delete(id);
+  // Bug #20: clear pending favicon timer so it doesn't write to a detached element
+  if (_faviconTimers.has(id)) { clearTimeout(_faviconTimers.get(id)); _faviconTimers.delete(id); }
   if (activeTabId === id) {
     activeTabId = null;
     const keys = [...tabs.keys()];
@@ -235,13 +248,17 @@ window.electronAPI.onFaviconChanged((id, favicon) => {
   const icon = el.querySelector('.tab-icon');
   const img = document.createElement('img');
   img.src = favicon;
-  // Favicon timeout — fall back to globe after 5 s if image hasn't loaded
+  // Bug #20: track timer per tab so we can cancel it if the tab closes
+  if (_faviconTimers.has(id)) clearTimeout(_faviconTimers.get(id));
   const timer = setTimeout(() => {
+    _faviconTimers.delete(id);
+    if (!document.getElementById(`tab-${id}`)) return; // tab already closed
     icon.innerHTML = '<i data-lucide="globe"></i>';
     lucide.createIcons();
   }, 5000);
-  img.onload = () => { clearTimeout(timer); icon.innerHTML = ''; icon.appendChild(img); };
-  img.onerror = () => { clearTimeout(timer); icon.innerHTML = '<i data-lucide="globe"></i>'; lucide.createIcons(); };
+  _faviconTimers.set(id, timer);
+  img.onload = () => { clearTimeout(timer); _faviconTimers.delete(id); icon.innerHTML = ''; icon.appendChild(img); };
+  img.onerror = () => { clearTimeout(timer); _faviconTimers.delete(id); icon.innerHTML = '<i data-lucide="globe"></i>'; lucide.createIcons(); };
 });
 
 window.electronAPI.onLoadingStatus((id, loading) => {
@@ -354,6 +371,11 @@ if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
   window.electronAPI.onThemeUpdated(applyTheme);
 
   if (session && session.tabs && session.tabs.length > 0) {
+    // Bug #1 fix: init counter from max restored tab number to avoid ID collision
+    for (const tab of session.tabs) {
+      const num = parseInt((tab.id || '').replace('tab-', ''), 10);
+      if (!isNaN(num) && num > _tabCounter) _tabCounter = num;
+    }
     // Restore previous session
     for (const tab of session.tabs) {
       createTab(tab.url || 'home', tab.id);

@@ -242,11 +242,49 @@
       document.querySelector(`#${triggerId} span`).textContent = item.textContent;
     }
 
-    window.electronAPI.getSettings().then(s => applySettingsToUI(s, false));
+    window.electronAPI.getSettings().then(async s => {
+      applySettingsToUI(s, false);
+      // Bug #9: populate theme dropdown dynamically from available theme files
+      try {
+        const themes = await window.electronAPI.getAvailableThemes();
+        const optionsEl = document.getElementById('theme-options');
+        const triggerSpan = document.querySelector('#theme-trigger span');
+        // Build list: always start with Default
+        optionsEl.innerHTML = '<div class="custom-option" data-value="default">Default (Arch)</div>';
+        themes.forEach(t => {
+          if (t.id === 'default') return; // already added
+          const div = document.createElement('div');
+          div.className = 'custom-option';
+          div.dataset.value = t.id;
+          div.textContent = t.name || t.id;
+          optionsEl.appendChild(div);
+        });
+        // Re-wire click handlers for the dynamically added options
+        optionsEl.querySelectorAll('.custom-option').forEach(item => {
+          item.onclick = () => {
+            optionsEl.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
+            item.classList.add('selected');
+            triggerSpan.textContent = item.textContent;
+            window.electronAPI.updateSetting('theme', item.dataset.value);
+            closeAllDropdowns();
+          };
+        });
+        // Sync selection to current value
+        syncDropdown('theme-options', 'theme-trigger', s.theme || 'default');
+      } catch (e) { console.warn('[kiyo] getAvailableThemes failed', e); }
+    });
     window.electronAPI.onThemeUpdated(s => applySettingsToUI(s, true));
 
-    document.getElementById('blur-range').oninput = e =>
-      window.electronAPI.updateSetting('blurIntensity', parseInt(e.target.value));
+    document.getElementById('blur-range').oninput = (() => {
+      // Bug #21: debounce — don't hammer disk/IPC on every slider tick
+      let _blurTimer;
+      return e => {
+        clearTimeout(_blurTimer);
+        _blurTimer = setTimeout(() => {
+          window.electronAPI.updateSetting('blurIntensity', parseInt(e.target.value));
+        }, 150);
+      };
+    })();
 
     document.querySelectorAll('.settings-sidebar button').forEach(btn => {
       btn.onclick = () => {

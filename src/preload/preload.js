@@ -1,11 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-/**
- * singleListener — removes any previous listener before adding the new one.
- * Prevents duplicate-listener accumulation on hot paths.
- */
+// Bug #13 fix: track exactly the ONE listener we registered per channel so we
+// only remove OUR previous one, not any others (removeAllListeners was too aggressive).
+const _kiyoListeners = new Map();
 function on(channel, wrapper) {
-  ipcRenderer.removeAllListeners(channel);
+  if (_kiyoListeners.has(channel)) {
+    ipcRenderer.removeListener(channel, _kiyoListeners.get(channel));
+  }
+  _kiyoListeners.set(channel, wrapper);
   ipcRenderer.on(channel, wrapper);
 }
 
@@ -65,6 +67,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearHistory: () => ipcRenderer.send('clear-history'),
   removeHistoryEntry: (url) => ipcRenderer.send('remove-history-entry', url),
   onHistoryUpdated: (cb) => on('history-updated', () => cb()),
+
+  // ── Quick Links (Bug #4: proper userData JSON storage, not localStorage) ───
+  getQuickLinks: () => ipcRenderer.invoke('get-quick-links'),
+  saveQuickLinks: (links) => ipcRenderer.send('save-quick-links', links),
 
   // ── Keyboard shortcuts (from globalShortcut in main) ──────────────────────
   onShortcut: (cb) => on('shortcut', (_, name) => cb(name)),
