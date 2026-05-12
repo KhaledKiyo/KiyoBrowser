@@ -87,7 +87,6 @@ npm start
 
 This is a BETA. Planned for future releases:
 
-- [ ] Settings page UI
 - [ ] More theme options
 - [ ] Extension support
 - [ ] Better Windows compatibility
