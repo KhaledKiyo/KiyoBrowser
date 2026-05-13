@@ -152,6 +152,24 @@ body {
   align-items: center;
 }
 
+/* ── Private Mode Adjustments ─────────────────────────────────────────────── */
+body.private-mode .browser-sidebar {
+    background: #0f0a1a; /* Darker, slightly purple background */
+    border-right: 1px solid rgba(157, 80, 187, 0.2);
+}
+
+body.private-mode .logo {
+    background: linear-gradient(135deg, #9d50bb, #6e48aa);
+    box-shadow: 0 0 15px rgba(157, 80, 187, 0.4);
+}
+
+body.private-mode #bookmarks-btn,
+body.private-mode #history-btn,
+body.private-mode #menu-btn,
+body.private-mode #private-window-btn {
+    display: none;
+}
+
 .side-btn {
   position: relative;
   background: transparent;
