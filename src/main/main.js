@@ -18,6 +18,7 @@ const PAGE = {
   downloads: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'downloads', 'downloads.html'),
   bookmarks: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'bookmarks', 'bookmarks.html'),
   history: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'history', 'history.html'),
+  note: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'note', 'note.html'),
 };
 
 function normaliseFileUrl(u) {
@@ -411,6 +412,41 @@ ipcMain.on('show-tab-menu', (event, id) => {
     },
     { type: 'separator' },
     { label: 'Close Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'close') }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.on('show-context-menu', (event) => {
+  const template = [
+    { role: 'undo' },
+    { role: 'redo' },
+    { type: 'separator' },
+    { role: 'cut' },
+    { role: 'copy' },
+    { role: 'paste' },
+    { type: 'separator' },
+    { role: 'selectAll' }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.on('show-folder-menu', (event, folderName) => {
+  const template = [
+    { label: `New Note in ${folderName}`, click: () => event.sender.send('note-action', { type: 'new-note', folder: folderName }) },
+    { type: 'separator' },
+    { label: 'Rename Folder', click: () => event.sender.send('note-action', { type: 'rename-folder', folder: folderName }) },
+    { label: 'Delete Folder', click: () => event.sender.send('note-action', { type: 'delete-folder', folder: folderName }) }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.on('show-note-menu', (event, noteId) => {
+  const template = [
+    { label: 'Rename Note', click: () => event.sender.send('note-action', { type: 'rename-note', id: noteId }) },
+    { label: 'Delete Note', click: () => event.sender.send('note-action', { type: 'delete-note', id: noteId }) },
   ];
   const menu = Menu.buildFromTemplate(template);
   menu.popup(BrowserWindow.fromWebContents(event.sender));

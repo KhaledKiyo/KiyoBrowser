@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiyo Note</title>
+    <link rel="stylesheet" href="note.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="note-app">
+        <!-- Activity Bar -->
+        <aside class="activity-bar">
+            <div class="activity-top">
+                <button class="activity-btn active" data-tab="files" title="Files"><i data-lucide="folder"></i></button>
+                <button class="activity-btn" data-tab="search" title="Search"><i data-lucide="search"></i></button>
+                <button class="activity-btn" data-tab="tags" title="Tags"><i data-lucide="tag"></i></button>
+            </div>
+            <div class="activity-spacer"></div>
+            <button class="activity-btn" id="graph-toggle" title="Graph View">⬡</button>
+        </aside>
+
+        <!-- Sidebar -->
+        <aside class="note-sidebar">
+            <div class="sidebar-header">
+                <div class="vault-info">
+                    <div class="vault-logo">K</div>
+                    <span class="vault-name">Kiyo Note</span>
+                </div>
+                <div class="header-btns">
+                    <button class="new-note-btn" id="new-folder-trigger" title="New Folder"><i data-lucide="folder-plus"></i></button>
+                    <button class="new-note-btn" id="new-note-trigger" title="New Note">+</button>
+                </div>
+            </div>
+
+            <!-- Inline Creator (Replaces Modals) -->
+            <div id="inline-creator" class="inline-creator" style="display: none;">
+                <input type="text" id="inline-input" autocomplete="off" -webkit-app-region="no-drag">
+                <div class="inline-btns">
+                    <button id="inline-confirm"><i data-lucide="check"></i></button>
+                    <button id="inline-cancel"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+
+            <div class="sidebar-content" id="sidebar-tabs">
+                <!-- Tabs: Files, Search, Tags -->
+                <div class="tab-pane active" id="pane-files">
+                    <div id="folder-list"></div>
+                </div>
+                <div class="tab-pane" id="pane-search">
+                    <div class="search-wrap">
+                        <input type="text" id="note-search-input" placeholder="Search notes...">
+                    </div>
+                    <div id="search-results"></div>
+                </div>
+                <div class="tab-pane" id="pane-tags">
+                    <div class="tags-header">All Tags</div>
+                    <div class="tags-grid" id="tags-grid"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="note-main">
+            <div id="editor-empty" class="empty-state">
+                <div class="empty-icon">⬡</div>
+                <p>Select a note to begin</p>
+            </div>
+
+            <div id="editor-container" class="editor-container" style="display: none;">
+                <header class="editor-header">
+                    <div class="note-meta">
+                        <input type="text" id="note-title-input" class="note-title-edit" style="display: none;">
+                        <h1 id="note-title-display"></h1>
+                        <div class="note-info-bar">
+                            <span id="note-folder"></span>
+                            <span class="dot">·</span>
+                            <span id="note-updated"></span>
+                            <span class="dot">·</span>
+                            <span id="note-word-count"></span>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <button class="kn-btn" id="download-note-btn" title="Export as Markdown"><i data-lucide="download"></i></button>
+                        <button class="kn-btn primary" id="edit-save-btn">✏ Edit</button>
+                        <button class="kn-btn danger" id="delete-note-btn"><i data-lucide="trash-2"></i></button>
+                    </div>
+                </header>
+                <div class="editor-body">
+                    <textarea id="note-textarea" style="display: none;"></textarea>
+                    <div id="note-preview" class="rendered"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Graph View Overlay -->
+        <div id="graph-view" class="graph-overlay" style="display: none;">
+            <div class="graph-header">
+                <span class="graph-title">⬡ Graph View</span>
+                <button class="close-graph" id="close-graph-btn">×</button>
+            </div>
+            <div class="graph-canvas-wrap">
+                <svg id="graph-svg" viewBox="0 0 800 600"></svg>
+                <div class="graph-legend" id="graph-legend"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="note.js"></script>
+</body>
+</html>

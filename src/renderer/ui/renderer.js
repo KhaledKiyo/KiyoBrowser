@@ -6,6 +6,8 @@ const reloadBtn = document.getElementById('reload-btn');
 const loader = document.getElementById('loader');
 const tabsBar = document.getElementById('tabs-bar');
 const addTabBtn = document.getElementById('add-tab-btn');
+const privateWindowBtn = document.getElementById('private-window-btn');
+const noteBtn = document.getElementById('note-btn');
 const downloadsToggle = document.getElementById('downloads-toggle');
 const downloadBadge = document.getElementById('download-badge');
 const securityIndicator = document.getElementById('security-indicator');
@@ -373,6 +375,8 @@ downloadsToggle.addEventListener('click', () => {
 
 menuBtn.addEventListener('click', () => window.electronAPI.navigate('settings'));
 
+if (privateWindowBtn) privateWindowBtn.addEventListener('click', () => window.electronAPI.openPrivateWindow());
+if (noteBtn) noteBtn.addEventListener('click', () => createTab('kiyo://note'));
 if (bookmarksBtn) bookmarksBtn.addEventListener('click', () => window.electronAPI.navigate('bookmarks'));
 if (historyBtn) historyBtn.addEventListener('click', () => window.electronAPI.navigate('history'));
 if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);

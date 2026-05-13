@@ -4,10 +4,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 // only remove OUR previous one, not any others (removeAllListeners was too aggressive).
 const _kiyoListeners = new Map();
 function on(channel, wrapper) {
-  if (_kiyoListeners.has(channel)) {
-    ipcRenderer.removeListener(channel, _kiyoListeners.get(channel));
-  }
-  _kiyoListeners.set(channel, wrapper);
   ipcRenderer.on(channel, wrapper);
 }
 
@@ -77,4 +73,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Private Windows ────────────────────────────────────────────────────────
   openPrivateWindow: () => ipcRenderer.send('open-private-window'),
+
+  // ── Context Menu ──────────────────────────────────────────────────────────
+  showContextMenu: () => ipcRenderer.send('show-context-menu'),
+  showFolderMenu: (folder) => ipcRenderer.send('show-folder-menu', folder),
+  showNoteMenu: (id) => ipcRenderer.send('show-note-menu', id),
+  onNoteAction: (cb) => on('note-action', (_, action) => cb(action)),
 });
