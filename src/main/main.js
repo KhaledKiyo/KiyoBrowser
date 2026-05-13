@@ -1,15 +1,26 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, globalShortcut, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 
-const {
-  MAX_DOWNLOADS_HISTORY,
-  MAX_TABS,
-  MAX_HISTORY_ENTRIES,
-  MAX_BOOKMARKS,
-  newTabId,
-} = require('./constants');
+// ─── Modules ──────────────────────────────────────────────────────────────────
+const { PrivateSessionManager } = require('./lib/session');
+const { setupPrivacyShield, bindCosmeticFilters } = require('./lib/privacy');
+const { readJSON, writeJSON } = require('./lib/utils');
+
+// ─── App config ───────────────────────────────────────────────────────────────
+const USER_DATA = app.getPath('userData');
+const SETTINGS_PATH = path.join(USER_DATA, 'kiyo-settings.json');
+const BOOKMARKS_PATH = path.join(USER_DATA, 'kiyo-bookmarks.json');
+const HISTORY_PATH = path.join(USER_DATA, 'kiyo-history.json');
+const SESSION_PATH = path.join(USER_DATA, 'kiyo-session.json');
+const QUICKLINKS_PATH = path.join(USER_DATA, 'kiyo-quicklinks.json');
+
+const MAX_TABS = 20;
+const MAX_BOOKMARKS = 500;
+const MAX_HISTORY_ENTRIES = 1000;
+
+let _tabCounter = 0;
+function newTabId() { return 'tab-' + Date.now() + '-' + (++_tabCounter); }
 
 // ─── Internal page URLs ───────────────────────────────────────────────────────
 const PAGE = {
@@ -23,22 +34,15 @@ const PAGE = {
 
 function normaliseFileUrl(u) {
   try {
-    const obj = new URL(u);
-    return obj.protocol + '//' + obj.pathname;
-  } catch { return u; }
+    if (u.startsWith('file://')) return path.normalize(decodeURIComponent(u.slice(7)));
+  } catch (e) { }
+  return u;
 }
 
 // ─── Global State ─────────────────────────────────────────────────────────────
-const windows = new Map(); // webContents.id -> { window, views, activeViewId, isPrivate, partitionId }
-const viewToWindow = new Map(); // webContents.id -> winState
+const windows = new Map(); // win.webContents.id -> winState
+const viewToWindow = new Map(); // view.webContents.id -> winState
 const downloads = [];
-
-const DATA_DIR = app.getPath('userData');
-const SETTINGS_PATH = path.join(DATA_DIR, 'kiyo-settings.json');
-const SESSION_PATH = path.join(DATA_DIR, 'kiyo-session.json');
-const BOOKMARKS_PATH = path.join(DATA_DIR, 'kiyo-bookmarks.json');
-const HISTORY_PATH = path.join(DATA_DIR, 'kiyo-history.json');
-const QUICKLINKS_PATH = path.join(DATA_DIR, 'kiyo-quicklinks.json');
 
 const SETTINGS_DEFAULTS = {
   theme: 'default',
@@ -59,51 +63,6 @@ const SETTING_SCHEMA = {
 let settings = { ...SETTINGS_DEFAULTS };
 let bookmarks = [];
 let history = [];
-
-// ─── Private Session Manager ──────────────────────────────────────────────────
-const PrivateSessionManager = {
-  currentPartitionId: null,
-  activePrivateWindows: 0,
-
-  getPartitionId() {
-    if (!this.currentPartitionId) {
-      this.currentPartitionId = `incognito-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    }
-    return this.currentPartitionId;
-  },
-
-  increment() { this.activePrivateWindows++; },
-  decrement() {
-    this.activePrivateWindows--;
-    if (this.activePrivateWindows <= 0) {
-      this.activePrivateWindows = 0;
-      this.cleanup();
-    }
-  },
-
-  async cleanup() {
-    if (!this.currentPartitionId) return;
-    const sess = session.fromPartition(this.currentPartitionId);
-    await sess.clearStorageData();
-    await sess.clearCache();
-    console.log('[kiyo] Private session cleared:', this.currentPartitionId);
-    this.currentPartitionId = null;
-  }
-};
-
-// ─── Persistence helpers ──────────────────────────────────────────────────────
-function readJSON(filePath, fallback) {
-  try {
-    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (e) { console.warn('[kiyo] read failed:', filePath, e.message); }
-  return fallback;
-}
-
-function writeJSON(filePath, data) {
-  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); }
-  catch (e) { console.error('[kiyo] write failed:', filePath, e.message); }
-}
-
 function loadSettings() {
   const raw = readJSON(SETTINGS_PATH, {});
   for (const [key, validate] of Object.entries(SETTING_SCHEMA)) {
@@ -183,6 +142,11 @@ function createWindow(isPrivate = false, restoredSession = null) {
     },
   });
 
+  bindCosmeticFilters(win.webContents);
+  
+  // Apply Privacy Shield to this window's session
+  setupPrivacyShield(win.webContents.session, { enableCnameHeuristic: true });
+
   const winState = {
     window: win,
     views: new Map(),
@@ -231,6 +195,7 @@ function createWindow(isPrivate = false, restoredSession = null) {
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────
   win.on('close', () => {
+    if (isPrivate) PrivateSessionManager.decrement();
     if (!isPrivate) {
       const sessionTabs = [];
       for (const [tabId, view] of winState.views) {
@@ -247,10 +212,10 @@ function createWindow(isPrivate = false, restoredSession = null) {
     
     // Explicitly destroy views
     for (const view of winState.views.values()) {
+      viewToWindow.delete(view.webContents.id);
       view.webContents.destroy();
     }
     windows.delete(win.webContents.id);
-    if (isPrivate) PrivateSessionManager.decrement();
   });
 
   // ── Download tracking ────────────────────────────────────────────────────────
@@ -400,7 +365,6 @@ ipcMain.on('open-private-window', () => {
   createWindow(true);
 });
 
-const { Menu } = require('electron');
 ipcMain.on('show-tab-menu', (event, id) => {
   const winState = getWinState(event.sender);
   const template = [
@@ -518,6 +482,8 @@ function createView(winState, id, url) {
     if (favs?.length) winState.window.webContents.send('favicon-changed', id, favs[0]);
   });
 
+  bindCosmeticFilters(view.webContents);
+
   view.webContents.on('did-navigate', (_, u) => {
     const uiUrl = getUIUrl(u);
     winState.window.webContents.send('url-changed', id, uiUrl);
@@ -601,6 +567,9 @@ app.whenReady().then(() => {
   app.userAgentFallback = cleanUA;
 
   createWindow();
+
+  // Apply Shield to default session too
+  setupPrivacyShield(session.defaultSession, { enableCnameHeuristic: true });
 
   // Global Shortcuts
   const shortcuts = {
