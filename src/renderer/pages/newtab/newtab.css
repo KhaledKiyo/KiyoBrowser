@@ -303,3 +303,40 @@ body {
     transform: none;
   }
 }
+/* ── Private Mode ────────────────────────────────────────────────────────── */
+body.private-mode {
+  --bg-dark: #050508;
+  --arch-blue: #9499ff;
+}
+
+body.private-mode .mesh-bg {
+  background: radial-gradient(circle at 50% 50%, rgba(148, 153, 255, 0.03) 0%, transparent 60%);
+}
+
+.private-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 40px;
+  animation: fadeIn 0.8s ease-out;
+}
+
+.notice-icon {
+  width: 64px;
+  height: 64px;
+  background: rgba(148, 153, 255, 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--arch-blue);
+  border: 1px solid rgba(148, 153, 255, 0.2);
+}
+
+.private-notice p {
+  color: var(--text-dim);
+  font-size: 15px;
+  max-width: 300px;
+  line-height: 1.5;
+}

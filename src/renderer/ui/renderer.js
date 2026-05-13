@@ -22,6 +22,7 @@ let activeDownloads = 0;   // in-progress only
 let MAX_TABS = 20;  // overridden by main on ready
 let currentUrl = '';  // url of the active tab (for bookmark star)
 const tabs = new Map(); // id → { title, url, favicon }
+let isPrivateWindow = false;
 
 // ─── Tab ID counter (monotonic — avoids Date.now() collision) ─────────────────
 let _tabCounter = 0;
@@ -138,6 +139,7 @@ function updateAddTabButton() {
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 function saveSession() {
+  if (isPrivateWindow) return; // Never save session data from a private window
   const sessionTabs = [...tabs.entries()].map(([id, data]) => ({
     id, url: data.url || 'home', title: data.title,
   }));
@@ -179,10 +181,22 @@ async function toggleBookmark() {
 function updateSecurityIndicator(url) {
   let icon = 'globe';
   let color = 'var(--text-dim)';
-  if (!url) { icon = 'home'; color = 'var(--text-dim)'; }
-  else if (url.startsWith('https://')) { icon = 'shield-check'; color = 'var(--arch-blue)'; }
-  else if (url.startsWith('kiyo://')) { icon = 'command'; color = 'var(--arch-blue)'; }
-  else if (url.startsWith('http://')) { icon = 'shield-off'; color = '#f0a500'; }
+  if (isPrivateWindow) {
+    icon = 'shield';
+    color = 'var(--text-dim)';
+  } else if (!url) {
+    icon = 'home';
+    color = 'var(--text-dim)';
+  } else if (url.startsWith('https://')) {
+    icon = 'shield-check';
+    color = 'var(--arch-blue)';
+  } else if (url.startsWith('kiyo://')) {
+    icon = 'command';
+    color = 'var(--arch-blue)';
+  } else if (url.startsWith('http://')) {
+    icon = 'shield-off';
+    color = '#f0a500';
+  }
   securityIndicator.innerHTML = `<i data-lucide="${icon}"></i>`;
   securityIndicator.style.color = color;
   lucide.createIcons();
@@ -365,22 +379,28 @@ if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
 
 // ─── Boot — uses IPC handshake instead of setTimeout ─────────────────────────
 (async () => {
-  const { settings, maxTabs, session } = await window.electronAPI.rendererReady();
+  const data = await window.electronAPI.rendererReady();
+  if (!data) return;
+
+  const { settings, maxTabs, session, isPrivate } = data;
   MAX_TABS = maxTabs;
+  isPrivateWindow = isPrivate;
+
+  if (isPrivateWindow) {
+    document.body.classList.add('private-mode');
+  }
+
   applyTheme(settings);
   window.electronAPI.onThemeUpdated(applyTheme);
 
   if (session && session.tabs && session.tabs.length > 0) {
-    // Bug #1 fix: init counter from max restored tab number to avoid ID collision
     for (const tab of session.tabs) {
       const num = parseInt((tab.id || '').replace('tab-', ''), 10);
       if (!isNaN(num) && num > _tabCounter) _tabCounter = num;
     }
-    // Restore previous session
     for (const tab of session.tabs) {
       createTab(tab.url || 'home', tab.id);
     }
-    // Switch to previously active tab
     if (session.activeTabId && tabs.has(session.activeTabId)) {
       switchTab(session.activeTabId);
     }

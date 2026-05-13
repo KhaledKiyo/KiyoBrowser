@@ -20,7 +20,6 @@ const PAGE = {
   history: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'history', 'history.html'),
 };
 
-// Normalise a file:// URL — strip query/hash/trailing slash for alias matching
 function normaliseFileUrl(u) {
   try {
     const obj = new URL(u);
@@ -28,10 +27,9 @@ function normaliseFileUrl(u) {
   } catch { return u; }
 }
 
-// ─── State ────────────────────────────────────────────────────────────────────
-let mainWindow;
-const views = new Map();
-let activeViewId = null;
+// ─── Global State ─────────────────────────────────────────────────────────────
+const windows = new Map(); // webContents.id -> { window, views, activeViewId, isPrivate, partitionId }
+const viewToWindow = new Map(); // webContents.id -> winState
 const downloads = [];
 
 const DATA_DIR = app.getPath('userData');
@@ -60,6 +58,37 @@ const SETTING_SCHEMA = {
 let settings = { ...SETTINGS_DEFAULTS };
 let bookmarks = [];
 let history = [];
+
+// ─── Private Session Manager ──────────────────────────────────────────────────
+const PrivateSessionManager = {
+  currentPartitionId: null,
+  activePrivateWindows: 0,
+
+  getPartitionId() {
+    if (!this.currentPartitionId) {
+      this.currentPartitionId = `incognito-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    }
+    return this.currentPartitionId;
+  },
+
+  increment() { this.activePrivateWindows++; },
+  decrement() {
+    this.activePrivateWindows--;
+    if (this.activePrivateWindows <= 0) {
+      this.activePrivateWindows = 0;
+      this.cleanup();
+    }
+  },
+
+  async cleanup() {
+    if (!this.currentPartitionId) return;
+    const sess = session.fromPartition(this.currentPartitionId);
+    await sess.clearStorageData();
+    await sess.clearCache();
+    console.log('[kiyo] Private session cleared:', this.currentPartitionId);
+    this.currentPartitionId = null;
+  }
+};
 
 // ─── Persistence helpers ──────────────────────────────────────────────────────
 function readJSON(filePath, fallback) {
@@ -92,7 +121,7 @@ function resolveUrl(raw) {
   const t = raw.trim();
 
   let alias = t.startsWith('kiyo://') ? t.replace('kiyo://', '') : t;
-  alias = alias.replace(/\/$/, ''); // Remove trailing slash
+  alias = alias.replace(/\/$/, '');
   if (PAGE[alias]) return PAGE[alias]();
 
   if (/^(javascript|data|vbscript|blob):/i.test(t)) return null;
@@ -125,8 +154,8 @@ function getUIUrl(url) {
 }
 
 // ─── History helpers ──────────────────────────────────────────────────────────
-function pushHistory(url, title) {
-  // Don't record internal kiyo:// pages or blank
+function pushHistory(url, title, isPrivate) {
+  if (isPrivate) return; // Never record in history for private windows
   if (!url || url.startsWith('kiyo://') || url.startsWith('file://')) return;
   const entry = { url, title: title || url, visitedAt: Date.now() };
   history.unshift(entry);
@@ -136,31 +165,37 @@ function pushHistory(url, title) {
 }
 
 // ─── Window creation ──────────────────────────────────────────────────────────
-function createWindow() {
-  loadSettings();
-  loadBookmarks();
-  loadHistory();
+function createWindow(isPrivate = false, restoredSession = null) {
+  if (isPrivate) PrivateSessionManager.increment();
 
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1400, height: 900,
     minWidth: 800, minHeight: 500,
     backgroundColor: '#0a0b10',
+    title: isPrivate ? 'Kiyo Browser — Private' : 'Kiyo Browser',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      partition: isPrivate ? PrivateSessionManager.getPartitionId() : undefined,
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'ui', 'index.html'));
-  mainWindow.on('resize', updateActiveViewBounds);
+  const winState = {
+    window: win,
+    views: new Map(),
+    activeViewId: null,
+    isPrivate,
+    partitionId: isPrivate ? PrivateSessionManager.getPartitionId() : undefined
+  };
+  windows.set(win.webContents.id, winState);
 
-  // ── CSP (internal pages only) ────────────────────────────────────────────────
-  // Only override CSP for internal file:// pages.
-  // External sites (YouTube, GitHub, Claude, etc.) must keep their own headers
-  // untouched — overwriting them with connect-src 'none' broke ALL network calls.
-  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'ui', 'index.html'));
+  win.on('resize', () => updateActiveViewBounds(winState));
+
+  // ── CSP ─────────────────────────────────────────────────────────────────────
+  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     if (details.url.startsWith('file://')) {
       callback({
         responseHeaders: {
@@ -176,345 +211,340 @@ function createWindow() {
         },
       });
     } else {
-      // External site — never touch its headers
       callback({ responseHeaders: details.responseHeaders });
     }
   });
 
   // ── Permissions ───────────────────────────────────────────────────────────────
-  // Allow standard browser permissions so sites like YouTube, Meet, etc. work.
   const ALLOWED_PERMISSIONS = new Set([
     'media', 'geolocation', 'notifications', 'fullscreen',
     'pointerLock', 'openExternal', 'clipboard-read', 'clipboard-sanitized-write',
     'idle-detection', 'payment', 'midi',
   ]);
-  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.has(permission));
   });
-  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) => {
+  win.webContents.session.setPermissionCheckHandler((_wc, permission) => {
     return ALLOWED_PERMISSIONS.has(permission);
   });
 
-  // ── IPC: Ready handshake (fixes boot race) ───────────────────────────────────
-  ipcMain.handle('renderer-ready', () => {
-    const session = readJSON(SESSION_PATH, null);
-    return {
-      settings,
-      maxTabs: MAX_TABS,
-      session,   // null if none saved
-    };
-  });
-
-  // ── IPC: Settings ───────────────────────────────────────────────────────────
-  ipcMain.handle('get-settings', () => settings);
-
-  ipcMain.on('update-setting', (event, key, value) => {
-    if (!SETTING_SCHEMA[key] || !SETTING_SCHEMA[key](value)) {
-      console.warn('[kiyo] Rejected invalid setting:', key, value);
-      return;
-    }
-    settings[key] = value;
-    saveSettings();
-    broadcast('theme-updated', settings);
-  });
-
-  ipcMain.on('update-geometry', (event, geometry) => {
-    if (SETTING_SCHEMA.geometry(geometry)) {
-      settings.geometry = geometry;
-      saveSettings(); // Bug #7 fix: persist geometry to disk
-      updateActiveViewBounds();
-    }
-  });
-
-  // ── IPC: Downloads ──────────────────────────────────────────────────────────
-  ipcMain.handle('get-downloads', () => downloads);
-  ipcMain.on('clear-downloads', () => {
-    downloads.splice(0);
-    broadcast('downloads-cleared');
-  });
-
-  // ── IPC: Bookmarks ──────────────────────────────────────────────────────────
-  ipcMain.handle('get-bookmarks', () => bookmarks);
-
-  ipcMain.on('add-bookmark', (_, bookmark) => {
-    if (!bookmark || typeof bookmark.url !== 'string') return;
-    if (bookmarks.some(b => b.url === bookmark.url)) return; // deduplicate
-    if (bookmarks.length >= MAX_BOOKMARKS) bookmarks.pop();
-    bookmarks.unshift({ url: bookmark.url, title: bookmark.title || bookmark.url, addedAt: Date.now() });
-    saveBookmarks();
-    broadcast('bookmarks-updated', bookmarks);
-  });
-
-  ipcMain.on('remove-bookmark', (_, url) => {
-    const before = bookmarks.length;
-    bookmarks = bookmarks.filter(b => b.url !== url);
-    if (bookmarks.length !== before) {
-      saveBookmarks();
-      broadcast('bookmarks-updated', bookmarks);
-    }
-  });
-
-  ipcMain.handle('is-bookmarked', (_, url) => bookmarks.some(b => b.url === url));
-
-  // ── IPC: History ─────────────────────────────────────────────────────────────
-  ipcMain.handle('get-history', () => history);
-  ipcMain.on('clear-history', () => {
-    history = [];
-    saveHistory();
-    broadcast('history-updated');
-  });
-  ipcMain.on('remove-history-entry', (_, url) => {
-    history = history.filter(h => h.url !== url);
-    saveHistory();
-    broadcast('history-updated');
-  });
-
-  // ── IPC: Themes ─────────────────────────────────────────────────────────────
-  ipcMain.handle('get-available-themes', () => {
-    // Bug #12 fix: scan both top-level .css files AND subdirectory themes (e.g. aurora/aurora.css)
-    const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
-    if (!fs.existsSync(themesPath)) return [];
-    const seen = new Set();
-    const results = [];
-    for (const entry of fs.readdirSync(themesPath, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.css')) {
-        const name = entry.name.replace('.css', '');
-        if (seen.has(name)) continue;
-        seen.add(name);
-        const metaPath = path.join(themesPath, 'meta.json');
-        if (fs.existsSync(metaPath)) {
-          try { results.push(JSON.parse(fs.readFileSync(metaPath, 'utf8'))); continue; } catch { }
-        }
-        results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1), accentColor: null });
+  // ── Lifecycle ───────────────────────────────────────────────────────────────
+  win.on('close', () => {
+    if (!isPrivate) {
+      const sessionTabs = [];
+      for (const [tabId, view] of winState.views) {
+        try {
+          if (!view.webContents.isDestroyed()) {
+            sessionTabs.push({ id: tabId, url: view.webContents.getURL() || 'home' });
+          }
+        } catch { }
       }
-      if (entry.isDirectory()) {
-        const name = entry.name;
-        if (seen.has(name)) continue;
-        const cssPath = path.join(themesPath, name, name + '.css');
-        if (!fs.existsSync(cssPath)) continue;
-        seen.add(name);
-        const metaPath = path.join(themesPath, name, 'meta.json');
-        if (fs.existsSync(metaPath)) {
-          try { results.push(JSON.parse(fs.readFileSync(metaPath, 'utf8'))); continue; } catch { }
-        }
-        results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1), accentColor: null });
+      if (sessionTabs.length > 0) {
+        writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId: winState.activeViewId });
       }
     }
-    return results;
-  });
-
-  // Bug #4 fix: quick-links stored in userData JSON, not localStorage
-  ipcMain.handle('get-quick-links', () => readJSON(QUICKLINKS_PATH, null));
-  ipcMain.on('save-quick-links', (_, links) => writeJSON(QUICKLINKS_PATH, links));
-
-  // ── IPC: Tabs ───────────────────────────────────────────────────────────────
-  ipcMain.on('create-tab', (event, id, url) => {
-    if (views.size >= MAX_TABS) {
-      mainWindow.webContents.send('tab-limit-reached');
-      return;
+    
+    // Explicitly destroy views
+    for (const view of winState.views.values()) {
+      view.webContents.destroy();
     }
-    const resolved = resolveUrl(url) || PAGE.home();
-    createView(id, resolved);
-  });
-
-  ipcMain.on('switch-tab', (_, id) => switchView(id));
-  ipcMain.on('close-tab', (_, id) => closeView(id));
-  ipcMain.on('duplicate-tab', (_, id) => {
-    const v = views.get(id);
-    if (!v || views.size >= MAX_TABS) return;
-    const newId = newTabId();
-    const url = v.webContents.getURL() || PAGE.home();
-    createView(newId, url);
-    mainWindow.webContents.send('tab-duplicated', newId, url);
-  });
-
-  const { Menu } = require('electron');
-  ipcMain.on('show-tab-menu', (event, id) => {
-    const template = [
-      { label: 'Duplicate Tab', click: () => mainWindow.webContents.send('tab-menu-action', id, 'duplicate') },
-      { label: 'Reload Tab', click: () => {
-          const v = views.get(id);
-          if (v) v.webContents.reload();
-        }
-      },
-      { type: 'separator' },
-      { label: 'Close Tab', click: () => mainWindow.webContents.send('tab-menu-action', id, 'close') }
-    ];
-    const menu = Menu.buildFromTemplate(template);
-    menu.popup(BrowserWindow.fromWebContents(event.sender));
-  });
-
-  // ── IPC: Navigation ─────────────────────────────────────────────────────────
-  ipcMain.on('navigate', (_, url) => {
-    const v = views.get(activeViewId);
-    if (!v) return;
-    const resolved = resolveUrl(url);
-    if (!resolved) { console.warn('[kiyo] Blocked:', url); return; }
-    v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
-  });
-
-  ipcMain.on('go-back', () => { const v = views.get(activeViewId); if (v?.webContents.canGoBack()) v.webContents.goBack(); });
-  ipcMain.on('go-forward', () => { const v = views.get(activeViewId); if (v?.webContents.canGoForward()) v.webContents.goForward(); });
-  ipcMain.on('reload', () => { const v = views.get(activeViewId); if (v) v.webContents.reload(); });
-
-  // ── IPC: Session save/restore ────────────────────────────────────────────────
-  ipcMain.on('save-session', (_, sessionData) => {
-    writeJSON(SESSION_PATH, sessionData);
-  });
-
-  // Bug #5: save session from main process on window close (covers Alt+F4 / OS close)
-  mainWindow.on('close', () => {
-    const sessionTabs = [];
-    for (const [tabId, view] of views) {
-      try {
-        if (!view.webContents.isDestroyed()) {
-          sessionTabs.push({ id: tabId, url: view.webContents.getURL() || 'home' });
-        }
-      } catch { }
-    }
-    if (sessionTabs.length > 0) {
-      writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId: activeViewId });
-    }
+    windows.delete(win.webContents.id);
+    if (isPrivate) PrivateSessionManager.decrement();
   });
 
   // ── Download tracking ────────────────────────────────────────────────────────
-  mainWindow.webContents.session.on('will-download', (_, item) => {
+  win.webContents.session.on('will-download', (_, item) => {
+    if (isPrivate) return; // Skip history for private downloads
     const name = item.getFilename();
     if (downloads.length >= MAX_DOWNLOADS_HISTORY) downloads.splice(0, 1);
     const obj = { name, progress: 0, state: 'progressing', startedAt: Date.now() };
     downloads.push(obj);
-    mainWindow.webContents.send('download-started', name);
+    win.webContents.send('download-started', name);
 
     item.on('updated', (_, state) => {
       if (state === 'progressing') {
         const total = item.getTotalBytes();
         const prog = total > 0 ? item.getReceivedBytes() / total : 0;
         obj.progress = prog;
-        mainWindow.webContents.send('download-progress', name, prog);
+        win.webContents.send('download-progress', name, prog);
       }
     });
     item.once('done', (_, state) => {
       obj.state = state;
       obj.progress = 1;
-      mainWindow.webContents.send('download-completed', name, state);
+      win.webContents.send('download-completed', name, state);
     });
   });
 
-  // ── Global keyboard shortcuts ────────────────────────────────────────────────
-  const shortcuts = {
-    'CommandOrControl+T': () => mainWindow.webContents.send('shortcut', 'new-tab'),
-    'CommandOrControl+W': () => mainWindow.webContents.send('shortcut', 'close-tab'),
-    'CommandOrControl+L': () => mainWindow.webContents.send('shortcut', 'focus-url'),
-    'CommandOrControl+R': () => { const v = views.get(activeViewId); if (v) v.webContents.reload(); },
-    'CommandOrControl+Shift+R': () => { const v = views.get(activeViewId); if (v) v.webContents.reloadIgnoringCache(); },
-    'Alt+Left': () => { const v = views.get(activeViewId); if (v?.webContents.canGoBack()) v.webContents.goBack(); },
-    'Alt+Right': () => { const v = views.get(activeViewId); if (v?.webContents.canGoForward()) v.webContents.goForward(); },
-    'CommandOrControl+Shift+J': () => mainWindow.webContents.send('shortcut', 'open-downloads'),
-    'CommandOrControl+,': () => mainWindow.webContents.send('shortcut', 'open-settings'),
-    'CommandOrControl+B': () => mainWindow.webContents.send('shortcut', 'open-bookmarks'),
-    'CommandOrControl+H': () => mainWindow.webContents.send('shortcut', 'open-history'),
-    'CommandOrControl+D': () => mainWindow.webContents.send('shortcut', 'toggle-bookmark'),
-  };
-  for (const [accel, fn] of Object.entries(shortcuts)) globalShortcut.register(accel, fn);
+  return win;
 }
+
+// ─── IPC Handlers ─────────────────────────────────────────────────────────────
+ipcMain.handle('renderer-ready', (event) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return null;
+
+  let sessionData = null;
+  if (!winState.isPrivate) {
+    sessionData = readJSON(SESSION_PATH, null);
+  }
+
+  return {
+    settings,
+    maxTabs: MAX_TABS,
+    session: sessionData,
+    isPrivate: winState.isPrivate
+  };
+});
+
+ipcMain.handle('get-settings', () => settings);
+
+ipcMain.on('update-setting', (event, key, value) => {
+  if (!SETTING_SCHEMA[key] || !SETTING_SCHEMA[key](value)) return;
+  settings[key] = value;
+  saveSettings();
+  broadcast('theme-updated', settings);
+});
+
+ipcMain.on('update-geometry', (event, geometry) => {
+  const winState = getWinState(event.sender);
+  if (winState && SETTING_SCHEMA.geometry(geometry)) {
+    settings.geometry = geometry;
+    saveSettings();
+    updateActiveViewBounds(winState);
+  }
+});
+
+ipcMain.handle('get-downloads', () => downloads);
+ipcMain.on('clear-downloads', () => {
+  downloads.splice(0);
+  broadcast('downloads-cleared');
+});
+
+ipcMain.handle('get-bookmarks', () => bookmarks);
+ipcMain.on('add-bookmark', (_, bookmark) => {
+  if (!bookmark || typeof bookmark.url !== 'string') return;
+  if (bookmarks.some(b => b.url === bookmark.url)) return;
+  if (bookmarks.length >= MAX_BOOKMARKS) bookmarks.pop();
+  bookmarks.unshift({ url: bookmark.url, title: bookmark.title || bookmark.url, addedAt: Date.now() });
+  saveBookmarks();
+  broadcast('bookmarks-updated', bookmarks);
+});
+ipcMain.on('remove-bookmark', (_, url) => {
+  const before = bookmarks.length;
+  bookmarks = bookmarks.filter(b => b.url !== url);
+  if (bookmarks.length !== before) {
+    saveBookmarks();
+    broadcast('bookmarks-updated', bookmarks);
+  }
+});
+ipcMain.handle('is-bookmarked', (_, url) => bookmarks.some(b => b.url === url));
+
+ipcMain.handle('get-history', () => history);
+ipcMain.on('clear-history', () => {
+  history = [];
+  saveHistory();
+  broadcast('history-updated');
+});
+
+ipcMain.handle('get-available-themes', () => {
+  const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
+  if (!fs.existsSync(themesPath)) return [];
+  const results = [];
+  for (const entry of fs.readdirSync(themesPath, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.css')) {
+      const name = entry.name.replace('.css', '');
+      results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1) });
+    }
+  }
+  return results;
+});
+
+ipcMain.handle('get-quick-links', () => readJSON(QUICKLINKS_PATH, null));
+ipcMain.on('save-quick-links', (_, links) => writeJSON(QUICKLINKS_PATH, links));
+
+ipcMain.on('create-tab', (event, id, url) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  if (winState.views.size >= MAX_TABS) {
+    winState.window.webContents.send('tab-limit-reached');
+    return;
+  }
+  const resolved = resolveUrl(url) || PAGE.home();
+  createView(winState, id, resolved);
+});
+
+ipcMain.on('switch-tab', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (winState) switchView(winState, id);
+});
+
+ipcMain.on('close-tab', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (winState) closeView(winState, id);
+});
+
+ipcMain.on('duplicate-tab', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  const v = winState.views.get(id);
+  if (!v || winState.views.size >= MAX_TABS) return;
+  const newId = newTabId();
+  const url = v.webContents.getURL() || PAGE.home();
+  createView(winState, newId, url);
+  winState.window.webContents.send('tab-duplicated', newId, url);
+});
+
+ipcMain.on('open-private-window', () => {
+  createWindow(true);
+});
+
+const { Menu } = require('electron');
+ipcMain.on('show-tab-menu', (event, id) => {
+  const winState = getWinState(event.sender);
+  const template = [
+    { label: 'Duplicate Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'duplicate') },
+    { label: 'Reload Tab', click: () => {
+        const v = winState?.views.get(id);
+        if (v) v.webContents.reload();
+      }
+    },
+    { type: 'separator' },
+    { label: 'Close Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'close') }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.on('navigate', (event, url) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  const v = winState.views.get(winState.activeViewId);
+  if (!v) return;
+  const resolved = resolveUrl(url);
+  if (resolved) v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
+});
+
+ipcMain.on('go-back', (event) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v?.webContents.canGoBack()) v.webContents.goBack();
+});
+ipcMain.on('go-forward', (event) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v?.webContents.canGoForward()) v.webContents.goForward();
+});
+ipcMain.on('reload', (event) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v) v.webContents.reload();
+});
+
+ipcMain.on('save-session', (event, sessionData) => {
+  const winState = getWinState(event.sender);
+  if (winState && !winState.isPrivate) {
+    writeJSON(SESSION_PATH, sessionData);
+  }
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function broadcast(channel, ...args) {
-  if (mainWindow) mainWindow.webContents.send(channel, ...args);
-  for (const v of views.values()) {
-    try { v.webContents.send(channel, ...args); } catch { }
+  for (const winState of windows.values()) {
+    winState.window.webContents.send(channel, ...args);
+    for (const v of winState.views.values()) {
+      try { v.webContents.send(channel, ...args); } catch { }
+    }
   }
 }
 
-// ─── View management ──────────────────────────────────────────────────────────
-function createView(id, url) {
-  // Always inject the preload — it only adds window.electronAPI which is a
-  // harmless extra global on external sites but REQUIRED on internal pages.
-  // The previous conditional + will-navigate recreation was destroying webContents
-  // from inside their own event handler, causing the broken newtab / 00:00 clock bug.
+function getWinState(sender) {
+  if (!sender) return null;
+  return windows.get(sender.id) || viewToWindow.get(sender.id);
+}
+
+function createView(winState, id, url) {
   const view = new WebContentsView({
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
+      partition: winState.partitionId,
     },
   });
 
-  views.set(id, view);
+  winState.views.set(id, view);
+  viewToWindow.set(view.webContents.id, winState);
   view.webContents.loadURL(url).catch(e => console.error('[kiyo] view load:', e.message));
 
   view.webContents.on('page-favicon-updated', (_, favs) => {
-    if (favs?.length) mainWindow.webContents.send('favicon-changed', id, favs[0]);
+    if (favs?.length) winState.window.webContents.send('favicon-changed', id, favs[0]);
   });
 
   view.webContents.on('did-navigate', (_, u) => {
     const uiUrl = getUIUrl(u);
-    mainWindow.webContents.send('url-changed', id, uiUrl);
-    // Bug #6 fix: push with empty title — page-title-updated will fill it in retroactively
-    if (activeViewId === id) pushHistory(u, '');
+    winState.window.webContents.send('url-changed', id, uiUrl);
+    if (winState.activeViewId === id) pushHistory(u, '', winState.isPrivate);
   });
 
   view.webContents.on('did-navigate-in-page', (_, u, isMainFrame) => {
-    mainWindow.webContents.send('url-changed', id, getUIUrl(u));
-    // Bug #19 fix: record SPA (History API) navigations in history
-    if (isMainFrame && activeViewId === id && !u.startsWith('file://')) {
-      pushHistory(u, view.webContents.getTitle());
+    winState.window.webContents.send('url-changed', id, getUIUrl(u));
+    if (isMainFrame && winState.activeViewId === id && !u.startsWith('file://')) {
+      pushHistory(u, view.webContents.getTitle(), winState.isPrivate);
     }
   });
 
   view.webContents.on('page-title-updated', (_, title) => {
     let t = title;
     if (t.includes('newtab.html')) t = 'Home';
-    if (t.includes('settings.html')) t = 'Settings';
-    if (t.includes('downloads.html')) t = 'Downloads';
-    if (t.includes('bookmarks.html')) t = 'Bookmarks';
-    if (t.includes('history.html')) t = 'History';
-    mainWindow.webContents.send('title-changed', id, t);
-    // Bug #6 fix: retroactively update the history entry title once the page title is known
-    const currentUrl = view.webContents.getURL();
-    if (currentUrl && !currentUrl.startsWith('file://')) {
-      const entry = history.find(h => h.url === currentUrl && (!h.title || h.title === ''));
-      if (entry) { entry.title = title; saveHistory(); }
+    winState.window.webContents.send('title-changed', id, t);
+    
+    if (!winState.isPrivate) {
+      const currentUrl = view.webContents.getURL();
+      if (currentUrl && !currentUrl.startsWith('file://')) {
+        const entry = history.find(h => h.url === currentUrl && (!h.title || h.title === ''));
+        if (entry) { entry.title = title; saveHistory(); }
+      }
     }
   });
 
-  view.webContents.on('did-start-loading', () => mainWindow.webContents.send('loading-status', id, true));
-  view.webContents.on('did-stop-loading', () => mainWindow.webContents.send('loading-status', id, false));
-  // Note: bounds are NOT updated here — only on resize or geometry change
+  view.webContents.on('did-start-loading', () => winState.window.webContents.send('loading-status', id, true));
+  view.webContents.on('did-stop-loading', () => winState.window.webContents.send('loading-status', id, false));
 
-  switchView(id);
+  switchView(winState, id);
 }
 
-function switchView(id) {
-  if (activeViewId && views.has(activeViewId)) {
-    mainWindow.contentView.removeChildView(views.get(activeViewId));
+function switchView(winState, id) {
+  if (winState.activeViewId && winState.views.has(winState.activeViewId)) {
+    winState.window.contentView.removeChildView(winState.views.get(winState.activeViewId));
   }
-  activeViewId = id;
-  const v = views.get(id);
+  winState.activeViewId = id;
+  const v = winState.views.get(id);
   if (v) {
-    mainWindow.contentView.addChildView(v);
-    updateActiveViewBounds();
-    mainWindow.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL()));
+    winState.window.contentView.addChildView(v);
+    updateActiveViewBounds(winState);
+    winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL()));
   }
 }
 
-function closeView(id) {
-  const v = views.get(id);
+function closeView(winState, id) {
+  const v = winState.views.get(id);
   if (!v) return;
-  if (activeViewId === id) {
-    mainWindow.contentView.removeChildView(v);
-    activeViewId = null;
+  if (winState.activeViewId === id) {
+    winState.window.contentView.removeChildView(v);
+    winState.activeViewId = null;
   }
+  viewToWindow.delete(v.webContents.id);
   v.webContents.destroy();
-  views.delete(id);
+  winState.views.delete(id);
 }
 
-function updateActiveViewBounds() {
-  if (!mainWindow || !activeViewId) return;
-  const v = views.get(activeViewId);
+function updateActiveViewBounds(winState) {
+  if (!winState.window || !winState.activeViewId) return;
+  const v = winState.views.get(winState.activeViewId);
   if (!v) return;
-  const { width, height } = mainWindow.getContentBounds();
+  const { width, height } = winState.window.getContentBounds();
   const { sidebarWidth, headerHeight } = settings.geometry;
   v.setBounds({
     x: Math.round(sidebarWidth),
@@ -526,13 +556,30 @@ function updateActiveViewBounds() {
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  // Fix User-Agent to bypass Cloudflare
+  loadSettings();
+  loadBookmarks();
+  loadHistory();
+
   const defaultUA = session.defaultSession.getUserAgent();
   const cleanUA = defaultUA.replace(/kiyo\/[0-9\.-]+\s?/, '').replace(/Electron\/[0-9\.-]+\s?/, '');
   app.userAgentFallback = cleanUA;
 
-  // Clean User-Agent should be enough for most bot protections
   createWindow();
+
+  // Global Shortcuts
+  const shortcuts = {
+    'CommandOrControl+T': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'new-tab'),
+    'CommandOrControl+Shift+N': () => ipcMain.emit('open-private-window'),
+    'CommandOrControl+W': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'close-tab'),
+    'CommandOrControl+L': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'focus-url'),
+    'CommandOrControl+R': () => {
+      const winState = windows.get(BrowserWindow.getFocusedWindow()?.webContents.id);
+      const v = winState?.views.get(winState.activeViewId);
+      if (v) v.webContents.reload();
+    },
+  };
+  for (const [accel, fn] of Object.entries(shortcuts)) globalShortcut.register(accel, fn);
 });
+
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

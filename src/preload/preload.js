@@ -74,4 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Keyboard shortcuts (from globalShortcut in main) ──────────────────────
   onShortcut: (cb) => on('shortcut', (_, name) => cb(name)),
+
+  // ── Private Windows ────────────────────────────────────────────────────────
+  openPrivateWindow: () => ipcRenderer.send('open-private-window'),
 });

@@ -327,3 +327,31 @@ body {
     opacity: 0.6;
   }
 }
+/* ── Private Mode (Incognito) ─────────────────────────────────────────────── */
+body.private-mode {
+  --bg-dark: #050508;
+  --bg-sidebar: #08090d;
+  --bg-header: rgba(5, 5, 8, 0.85);
+  --arch-blue: #9499ff; /* Muted purple-blue for private mode */
+  --arch-blue-glow: rgba(148, 153, 255, 0.15);
+}
+
+body.private-mode .logo {
+  background: linear-gradient(135deg, #434343 0%, #000000 100%);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+body.private-mode .tab.active {
+  background: rgba(148, 153, 255, 0.1);
+  border-color: var(--arch-blue);
+}
+
+body.private-mode .url-pill {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+body.private-mode .tab-icon svg {
+  color: #666;
+}

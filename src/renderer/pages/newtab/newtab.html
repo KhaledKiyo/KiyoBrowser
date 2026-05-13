@@ -76,6 +76,30 @@
     window.electronAPI.getSettings().then(applyTheme);
     window.electronAPI.onThemeUpdated(applyTheme);
 
+    // ── Private Mode Handshake ────────────────────────────────────────────────
+    let isPrivateMode = false;
+    (async () => {
+      const data = await window.electronAPI.rendererReady();
+      if (data && data.isPrivate) {
+        isPrivateMode = true;
+        document.body.classList.add('private-mode');
+        document.getElementById('greeting').textContent = 'You are in private mode.';
+        const searchInput = document.getElementById('search-input');
+        searchInput.placeholder = 'Search the void privately...';
+        
+        // Add a notice element
+        const container = document.querySelector('.container');
+        const notice = document.createElement('div');
+        notice.className = 'private-notice';
+        notice.innerHTML = `
+          <div class="notice-icon"><i data-lucide="shield"></i></div>
+          <p>Kiyo won't save your history, cookies, or site data.</p>
+        `;
+        container.insertBefore(notice, document.getElementById('links-grid'));
+        lucide.createIcons();
+      }
+    })();
+
     // ── Clock + Greeting ───────────────────────────────────────────────────────
     function updateClock() {
       const now = new Date();
