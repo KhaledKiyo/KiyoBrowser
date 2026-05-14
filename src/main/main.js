@@ -684,12 +684,23 @@ app.whenReady().then(() => {
     'n': (win, e) => { if (e.shift) ipcMain.emit('open-private-window'); },
     'w': (win) => win.webContents.send('shortcut', 'close-tab'),
     'l': (win) => win.webContents.send('shortcut', 'focus-url'),
-    'r': (win) => {
+    'r': (win, e) => {
       const winState = windows.get(win.webContents.id);
       const v = winState?.views.get(winState.activeViewId);
-      if (v) v.webContents.reload();
+      if (v) {
+        if (e && e.shift) v.webContents.reloadIgnoringCache();
+        else v.webContents.reload();
+      }
     },
     'f': (win) => win.webContents.send('shortcut', 'open-find'),
+    'i': (win, e) => {
+      if (e.shift) {
+        const winState = windows.get(win.webContents.id) || Array.from(windows.values()).find(s => s.window === win);
+        const v = winState?.views.get(winState?.activeViewId);
+        if (v) v.webContents.toggleDevTools({ mode: 'detach' });
+        else win.webContents.toggleDevTools({ mode: 'detach' });
+      }
+    },
     '=': (win) => win.webContents.send('shortcut', 'zoom-in'),
     '-': (win) => win.webContents.send('shortcut', 'zoom-out'),
     '0': (win) => win.webContents.send('shortcut', 'zoom-reset'),
