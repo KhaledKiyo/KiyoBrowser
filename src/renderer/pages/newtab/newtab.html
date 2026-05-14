@@ -120,8 +120,6 @@
       { name: 'Arch Wiki', url: 'https://wiki.archlinux.org', icon: 'https://www.google.com/s2/favicons?sz=64&domain=archlinux.org' },
     ];
 
-    // Bug #3: escape user-supplied strings before inserting into innerHTML
-    function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 
     const grid = document.getElementById('links-grid');
     const addModal = document.getElementById('add-modal');
@@ -151,29 +149,51 @@
       links.forEach((link, index) => {
         const wrapper = document.createElement('div');
         wrapper.className = 'link-card-wrapper';
+        
         let hostname = '';
         try { hostname = new URL(link.url).hostname; } catch { }
-        // Bug #3: escape name to prevent XSS from crafted link names
-        wrapper.innerHTML = `
-          <div class="link-card" style="cursor:pointer">
-            <div class="link-icon">
-              <img src="${esc(link.icon || `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`)}"
-                   alt="${esc(link.name)}"
-                   onerror="this.src='https://www.google.com/s2/favicons?sz=64&domain=${esc(hostname)}'">
-            </div>
-            <span>${esc(link.name)}</span>
-          </div>
-          <button class="remove-link" aria-label="Remove ${esc(link.name)}"><i data-lucide="x"></i></button>
-        `;
-        wrapper.querySelector('.link-card').addEventListener('click', () => {
+
+        const card = document.createElement('div');
+        card.className = 'link-card';
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
           window.electronAPI.navigate(link.url);
         });
-        wrapper.querySelector('.remove-link').addEventListener('click', () => {
+
+        const iconContainer = document.createElement('div');
+        iconContainer.className = 'link-icon';
+        const img = document.createElement('img');
+        img.src = link.icon || `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`;
+        img.alt = link.name;
+        img.onerror = () => {
+          if (hostname && !img.dataset.triedFallback) {
+            img.dataset.triedFallback = 'true';
+            img.src = `https://www.google.com/s2/favicons?sz=64&domain=${hostname}`;
+          } else {
+            img.style.display = 'none';
+          }
+        };
+        iconContainer.appendChild(img);
+        card.appendChild(iconContainer);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = link.name;
+        card.appendChild(nameSpan);
+
+        wrapper.appendChild(card);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-link';
+        removeBtn.setAttribute('aria-label', `Remove ${link.name}`);
+        removeBtn.innerHTML = '<i data-lucide="x"></i>';
+        removeBtn.addEventListener('click', () => {
           const current = [..._links];
           current.splice(index, 1);
           saveLinks(current);
           renderLinks(current);
         });
+        wrapper.appendChild(removeBtn);
+
         grid.appendChild(wrapper);
       });
       lucide.createIcons();

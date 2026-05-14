@@ -29,12 +29,6 @@
     const grid = document.getElementById('downloads-grid');
     const emptyMsg = document.getElementById('empty-msg');
 
-    // Bug #3: escape filenames before injecting into innerHTML
-    function esc(s) {
-      const d = document.createElement('div');
-      d.textContent = String(s);
-      return d.innerHTML;
-    }
 
     function getFileIcon(name) {
       const ext = name.split('.').pop().toLowerCase();
@@ -67,18 +61,41 @@
       const pct = Math.round(progress * 100);
       const icon = getFileIcon(name);
 
-      card.innerHTML = `
-        <div class="file-icon"><i data-lucide="${esc(icon)}"></i></div>
-        <div class="file-info">
-          <div class="file-name">${esc(name)}</div>
-          <div class="file-meta">${new Date().toLocaleTimeString()}</div>
-          <div class="progress-container">
-            <div class="progress-bar" style="width: ${pct}%;"></div>
-          </div>
-          <div class="status ${state === 'completed' ? 'status-done' : ''}">${state === 'completed' ? '✓ Completed' : state === 'cancelled' ? '✗ Cancelled' : pct + '%'
-        }</div>
-        </div>
-      `;
+      const iconContainer = document.createElement('div');
+      iconContainer.className = 'file-icon';
+      const iconEl = document.createElement('i');
+      iconEl.setAttribute('data-lucide', icon);
+      iconContainer.appendChild(iconEl);
+      card.appendChild(iconContainer);
+
+      const info = document.createElement('div');
+      info.className = 'file-info';
+
+      const fileName = document.createElement('div');
+      fileName.className = 'file-name';
+      fileName.textContent = name;
+      info.appendChild(fileName);
+
+      const fileMeta = document.createElement('div');
+      fileMeta.className = 'file-meta';
+      fileMeta.textContent = new Date().toLocaleTimeString();
+      info.appendChild(fileMeta);
+
+      const progressContainer = document.createElement('div');
+      progressContainer.className = 'progress-container';
+      const progressBar = document.createElement('div');
+      progressBar.className = 'progress-bar';
+      progressBar.style.width = `${pct}%`;
+      progressContainer.appendChild(progressBar);
+      info.appendChild(progressContainer);
+
+      const status = document.createElement('div');
+      status.className = `status ${state === 'completed' ? 'status-done' : ''}`;
+      status.textContent = state === 'completed' ? '✓ Completed' : state === 'cancelled' ? '✗ Cancelled' : pct + '%';
+      info.appendChild(status);
+
+      card.appendChild(info);
+
       grid.prepend(card);
       lucide.createIcons();
     }

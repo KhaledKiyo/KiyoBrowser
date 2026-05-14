@@ -34,12 +34,6 @@
         const grid = document.getElementById('bookmarks-grid');
         const emptyMsg = document.getElementById('empty-msg');
 
-        function esc(s) {
-            // Bug #3: escape HTML to prevent XSS from crafted bookmark titles/URLs
-            const d = document.createElement('div');
-            d.textContent = String(s);
-            return d.innerHTML;
-        }
 
         function getFavicon(url) {
             try { return `https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}`; }
@@ -65,24 +59,48 @@
             bookmarks.forEach(bm => {
                 const card = document.createElement('div');
                 card.className = 'bookmark-card';
-                // Bug #2: use onclick+navigate instead of <a href> which navigated the wrong frame
-                // Bug #3: escape all user-supplied strings before injecting into innerHTML
-                card.innerHTML = `
-          <img class="bm-favicon" src="${esc(getFavicon(bm.url))}" alt="" onerror="this.style.display='none'">
-          <div class="bm-info">
-            <span class="bm-title" style="cursor:pointer">${esc(bm.title || bm.url)}</span>
-            <span class="bm-url">${esc(bm.url)}</span>
-          </div>
-          <div class="bm-meta">${timeAgo(bm.addedAt)}</div>
-          <button class="bm-remove" title="Remove bookmark"><i data-lucide="x"></i></button>
-        `;
-                card.querySelector('.bm-title').addEventListener('click', () => {
+                
+                const favicon = document.createElement('img');
+                favicon.className = 'bm-favicon';
+                favicon.src = getFavicon(bm.url);
+                favicon.alt = '';
+                favicon.onerror = () => { favicon.style.display = 'none'; };
+                card.appendChild(favicon);
+
+                const info = document.createElement('div');
+                info.className = 'bm-info';
+
+                const title = document.createElement('span');
+                title.className = 'bm-title';
+                title.style.cursor = 'pointer';
+                title.textContent = bm.title || bm.url;
+                title.addEventListener('click', () => {
                     window.electronAPI.navigate(bm.url);
                 });
-                card.querySelector('.bm-remove').addEventListener('click', e => {
+                info.appendChild(title);
+
+                const url = document.createElement('span');
+                url.className = 'bm-url';
+                url.textContent = bm.url;
+                info.appendChild(url);
+
+                card.appendChild(info);
+
+                const meta = document.createElement('div');
+                meta.className = 'bm-meta';
+                meta.textContent = timeAgo(bm.addedAt);
+                card.appendChild(meta);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'bm-remove';
+                removeBtn.title = 'Remove bookmark';
+                removeBtn.innerHTML = '<i data-lucide="x"></i>';
+                removeBtn.addEventListener('click', e => {
                     e.stopPropagation();
                     window.electronAPI.removeBookmark(bm.url);
                 });
+                card.appendChild(removeBtn);
+
                 grid.appendChild(card);
             });
             lucide.createIcons();

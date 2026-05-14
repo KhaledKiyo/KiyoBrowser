@@ -38,7 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTabMenuAction: (cb) => on('tab-menu-action', (_, id, action) => cb(id, action)),
 
   // ── Downloads ─────────────────────────────────────────────────────────────
-  onDownloadStarted: (cb) => on('download-started', (_, name) => cb(name)),
+  onDownloadsUpdated: (cb) => on('downloads-updated', (_, downloads) => cb(downloads)),
   onDownloadProgress: (cb) => on('download-progress', (_, name, prog) => cb(name, prog)),
   onDownloadCompleted: (cb) => on('download-completed', (_, name, state) => cb(name, state)),
   onDownloadsCleared: (cb) => on('downloads-cleared', () => cb()),

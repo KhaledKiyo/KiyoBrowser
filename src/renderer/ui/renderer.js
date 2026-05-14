@@ -19,16 +19,16 @@ const bookmarkStarBtn = document.getElementById('bookmark-star-btn');
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let activeTabId = null;
-let unseenDownloads = 0;   // badge = unseen completed + in-progress
-let activeDownloads = 0;   // in-progress only
+let unseenDownloads = 0;
+let activeDownloads = 0;
+let lastDownloadsViewedAt = Date.now();
 let MAX_TABS = 20;  // overridden by main on ready
 let currentUrl = '';  // url of the active tab (for bookmark star)
 const tabs = new Map(); // id → { title, url, favicon }
 let isPrivateWindow = false;
 
 // ─── Tab ID counter (monotonic — avoids Date.now() collision) ─────────────────
-let _tabCounter = 0;
-function nextTabId() { return 'tab-' + (++_tabCounter); }
+function nextTabId() { return self.crypto.randomUUID(); }
 
 // Bug #20: track favicon load timers per tab so they can be cancelled on tab close
 const _faviconTimers = new Map();
@@ -308,18 +308,10 @@ window.electronAPI.onTabDuplicated((id, url) => {
 window.electronAPI.onTabLimitReached(() => showToast('Tab limit reached (' + MAX_TABS + ' max)', 'error'));
 
 // Downloads — badge counts unseen completed + in-progress
-window.electronAPI.onDownloadStarted(_name => {
-  activeDownloads++;
-  updateDownloadBadge();
-});
-
-window.electronAPI.onDownloadProgress((_name, _prog) => {
-  // progress doesn't change badge count
-});
-
-window.electronAPI.onDownloadCompleted((_name, _state) => {
-  activeDownloads = Math.max(0, activeDownloads - 1);
-  unseenDownloads++;
+window.electronAPI.onDownloadsUpdated(downloads => {
+  activeDownloads = downloads.filter(d => d.state === 'progressing').length;
+  // Unseen are those completed after we last opened the downloads page
+  unseenDownloads = downloads.filter(d => d.state === 'completed' && d.startedAt > lastDownloadsViewedAt).length;
   updateDownloadBadge();
 });
 
@@ -367,7 +359,7 @@ forwardBtn.addEventListener('click', () => window.electronAPI.goForward());
 reloadBtn.addEventListener('click', () => window.electronAPI.reload());
 
 downloadsToggle.addEventListener('click', () => {
-  // Clear unseen badge when user opens downloads
+  lastDownloadsViewedAt = Date.now();
   unseenDownloads = 0;
   updateDownloadBadge();
   window.electronAPI.navigate('downloads');
@@ -399,10 +391,6 @@ if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
 
   if (session && session.tabs && session.tabs.length > 0) {
     for (const tab of session.tabs) {
-      const num = parseInt((tab.id || '').replace('tab-', ''), 10);
-      if (!isNaN(num) && num > _tabCounter) _tabCounter = num;
-    }
-    for (const tab of session.tabs) {
       createTab(tab.url || 'home', tab.id);
     }
     if (session.activeTabId && tabs.has(session.activeTabId)) {
@@ -412,4 +400,5 @@ if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
     createTab();
   }
   updateAddTabButton();
+  document.querySelector('.initial-load-placeholder')?.remove();
 })();

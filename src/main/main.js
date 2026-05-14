@@ -19,8 +19,8 @@ const MAX_TABS = 20;
 const MAX_BOOKMARKS = 500;
 const MAX_HISTORY_ENTRIES = 1000;
 
-let _tabCounter = 0;
-function newTabId() { return 'tab-' + Date.now() + '-' + (++_tabCounter); }
+const { randomUUID } = require('crypto');
+function newTabId() { return randomUUID(); }
 
 // ─── Internal page URLs ───────────────────────────────────────────────────────
 const PAGE = {
@@ -115,8 +115,9 @@ function getUIUrl(url) {
 
 // ─── History helpers ──────────────────────────────────────────────────────────
 function pushHistory(url, title, isPrivate) {
-  if (isPrivate) return; // Never record in history for private windows
-  if (!url || url.startsWith('kiyo://') || url.startsWith('file://')) return;
+  if (isPrivate) return; 
+  const uiUrl = getUIUrl(url);
+  if (!uiUrl || uiUrl.startsWith('kiyo://') || url.startsWith('file://')) return;
   const entry = { url, title: title || url, visitedAt: Date.now() };
   history.unshift(entry);
   if (history.length > MAX_HISTORY_ENTRIES) history.splice(MAX_HISTORY_ENTRIES);
@@ -220,12 +221,12 @@ function createWindow(isPrivate = false, restoredSession = null) {
 
   // ── Download tracking ────────────────────────────────────────────────────────
   win.webContents.session.on('will-download', (_, item) => {
-    if (isPrivate) return; // Skip history for private downloads
+    if (isPrivate) return; 
     const name = item.getFilename();
     if (downloads.length >= MAX_DOWNLOADS_HISTORY) downloads.splice(0, 1);
     const obj = { name, progress: 0, state: 'progressing', startedAt: Date.now() };
     downloads.push(obj);
-    win.webContents.send('download-started', name);
+    broadcast('downloads-updated', downloads);
 
     item.on('updated', (_, state) => {
       if (state === 'progressing') {
@@ -238,6 +239,7 @@ function createWindow(isPrivate = false, restoredSession = null) {
     item.once('done', (_, state) => {
       obj.state = state;
       obj.progress = 1;
+      broadcast('downloads-updated', downloads);
       win.webContents.send('download-completed', name, state);
     });
   });
@@ -265,8 +267,23 @@ ipcMain.handle('renderer-ready', (event) => {
 
 ipcMain.handle('get-settings', () => settings);
 
-ipcMain.on('update-setting', (event, key, value) => {
+ipcMain.on('update-setting', async (event, key, value) => {
   if (!SETTING_SCHEMA[key] || !SETTING_SCHEMA[key](value)) return;
+
+  if (key === 'theme' && value !== 'default') {
+    const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
+    const themeFiles = fs.readdirSync(themesPath)
+      .filter(f => f.endsWith('.css'))
+      .map(f => f.replace('.css', ''));
+    
+    // Also check subdirectories for themes (as mentioned in tasks.md)
+    const subDirs = fs.readdirSync(themesPath, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    
+    if (!themeFiles.includes(value) && !subDirs.includes(value)) return;
+  }
+
   settings[key] = value;
   saveSettings();
   broadcast('theme-updated', settings);
