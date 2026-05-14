@@ -97,7 +97,7 @@
       card.appendChild(info);
 
       grid.prepend(card);
-      lucide.createIcons();
+      lucide.createIcons({ nodes: [card] });
     }
 
     function updateCard(name, progress, state) {

@@ -182,7 +182,7 @@ function renderSidebar() {
         tagsGrid.appendChild(chip);
     });
     
-    lucide.createIcons();
+    lucide.createIcons({ nodes: [folderList, tagsGrid] });
 }
 
 // ─── Note Rendering ──────────────────────────────────────────────────────────

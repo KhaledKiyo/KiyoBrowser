@@ -8,8 +8,9 @@ function readJSON(filePath, fallback) {
 }
 
 function writeJSON(filePath, data) {
-  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); }
-  catch (e) { console.error('[kiyo-utils] write failed:', filePath, e.message); }
+  fs.writeFile(filePath, JSON.stringify(data, null, 2), err => {
+    if (err) console.error('[kiyo-utils] write failed:', filePath, err.message);
+  });
 }
 
 module.exports = { readJSON, writeJSON };

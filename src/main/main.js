@@ -173,7 +173,11 @@ function createWindow(isPrivate = false, restoredSession = null) {
   windows.set(win.webContents.id, winState);
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'ui', 'index.html'));
-  win.on('resize', () => updateActiveViewBounds(winState));
+  let _resizeTimer = null;
+  win.on('resize', () => {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => updateActiveViewBounds(winState), 16);
+  });
 
   // ── CSP ─────────────────────────────────────────────────────────────────────
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -549,7 +553,10 @@ function broadcast(channel, ...args) {
   for (const winState of windows.values()) {
     winState.window.webContents.send(channel, ...args);
     for (const v of winState.views.values()) {
-      try { v.webContents.send(channel, ...args); } catch { }
+      try { 
+        const url = v.webContents.getURL();
+        if (!url || url.startsWith('file://')) v.webContents.send(channel, ...args);
+      } catch { }
     }
   }
 }
@@ -560,6 +567,7 @@ function getWinState(sender) {
 }
 
 function createView(winState, id, url) {
+  const isInternal = url.startsWith('file://') || url.startsWith('kiyo://');
   const view = new WebContentsView({
     webPreferences: {
       nodeIntegration: false,
@@ -567,6 +575,8 @@ function createView(winState, id, url) {
       sandbox: true,
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       partition: winState.partitionId,
+      spellcheck: isInternal,
+      enableWebSQL: isInternal,
     },
   });
 

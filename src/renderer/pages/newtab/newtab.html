@@ -68,7 +68,7 @@
           <p>Kiyo won't save your history, cookies, or site data.</p>
         `;
         container.insertBefore(notice, document.getElementById('links-grid'));
-        lucide.createIcons();
+        lucide.createIcons({ nodes: [notice] });
       }
     })();
 
@@ -168,10 +168,10 @@
 
         grid.appendChild(wrapper);
       });
-      lucide.createIcons();
+      lucide.createIcons({ nodes: [grid] });
     }
 
-    loadLinks();
+    requestIdleCallback(() => loadLinks());
 
     // Keep search engine in sync
     let currentSearchEngine = 'google';

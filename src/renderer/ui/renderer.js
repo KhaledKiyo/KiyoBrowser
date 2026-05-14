@@ -84,7 +84,7 @@ function createTab(url = null, existingId = null) {
   tabEl.setAttribute('data-title', 'New Tab');
   tabEl.innerHTML = `<span class="tab-icon"><i data-lucide="globe"></i></span>`;
   tabsBar.appendChild(tabEl);
-  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [tabEl] });
 
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
@@ -130,12 +130,16 @@ function updateAddTabButton() {
 }
 
 // ─── Session persistence ──────────────────────────────────────────────────────
+let _sessionTimer = null;
 function saveSession() {
   if (isPrivateWindow) return; // Never save session data from a private window
-  const sessionTabs = [...tabs.entries()].map(([id, data]) => ({
-    id, url: data.url || 'home', title: data.title,
-  }));
-  window.electronAPI.saveSession({ tabs: sessionTabs, activeTabId });
+  if (_sessionTimer) clearTimeout(_sessionTimer);
+  _sessionTimer = setTimeout(() => {
+    const sessionTabs = [...tabs.entries()].map(([id, data]) => ({
+      id, url: data.url || 'home', title: data.title,
+    }));
+    window.electronAPI.saveSession({ tabs: sessionTabs, activeTabId });
+  }, 1000);
 }
 
 // ─── Bookmark star ────────────────────────────────────────────────────────────
@@ -152,7 +156,7 @@ async function updateBookmarkStar(url) {
   bookmarkStarBtn.innerHTML = starred
     ? `<i data-lucide="star" style="fill:var(--arch-blue);color:var(--arch-blue)"></i>`
     : `<i data-lucide="star"></i>`;
-  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [bookmarkStarBtn] });
 }
 
 async function toggleBookmark() {
@@ -191,7 +195,7 @@ function updateSecurityIndicator(url) {
   }
   securityIndicator.innerHTML = `<i data-lucide="${icon}"></i>`;
   securityIndicator.style.color = color;
-  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [securityIndicator] });
 }
 
 // ─── Toast notification ───────────────────────────────────────────────────────
@@ -269,8 +273,10 @@ window.electronAPI.onFaviconChanged((id, favicon) => {
       },
       nodes: [icon]
     });
-  }, 5000);
+  }, 1500);
   _faviconTimers.set(id, timer);
+  img.loading = 'eager';
+  img.decoding = 'async';
   img.onload = () => { clearTimeout(timer); _faviconTimers.delete(id); icon.innerHTML = ''; icon.appendChild(img); };
   img.onerror = () => { 
     clearTimeout(timer); 
@@ -324,7 +330,7 @@ window.electronAPI.onTabDuplicated((id, url) => {
   tabEl.setAttribute('data-title', 'New Tab');
   tabEl.innerHTML = `<span class="tab-icon"><i data-lucide="globe"></i></span>`;
   tabsBar.appendChild(tabEl);
-  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [tabEl] });
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
   tabs.set(id, { title: 'New Tab', url, favicon: null });

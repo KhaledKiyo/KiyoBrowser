@@ -262,8 +262,8 @@ function getRootDomain(hostname) {
 function isFirstParty(requestUrl, initiator) {
   if (!initiator) return false;
   try {
-    const req = new URL(requestUrl);
-    const ini = new URL(initiator);
+    const req = typeof requestUrl === 'string' ? new URL(requestUrl) : requestUrl;
+    const ini = typeof initiator === 'string' ? new URL(initiator) : initiator;
     return getRootDomain(req.hostname) === getRootDomain(ini.hostname);
   } catch { return false; }
 }
@@ -279,6 +279,7 @@ const TRACKING_PARAMS = new Set([
 ]);
 
 function stripTrackingParams(url) {
+  if (!url.includes('?')) return null;
   try {
     const u = new URL(url);
     let stripped = false;
@@ -362,12 +363,12 @@ function setupPrivacyShield(sess, options = {}) {
       if (!hostname) return callback({ cancel: false });
 
       if (isDomainBlocked(hostname)) {
-        if (isFirstParty(url, initiator) && SAFE_FIRST_PARTY_TYPES.has(resourceType)) return callback({ cancel: false });
+        if (isFirstParty(parsedUrl, initiator) && SAFE_FIRST_PARTY_TYPES.has(resourceType)) return callback({ cancel: false });
         console.log('[SHIELD] Blocked domain:', hostname, 'URL:', url);
         return callback({ cancel: true });
       }
 
-      if (enableCnameHeuristic && !isFirstParty(url, initiator)) {
+      if (enableCnameHeuristic && !isFirstParty(parsedUrl, initiator)) {
         warmCnameLookup(hostname);
         if (CNAME_CACHE.get(hostname) === true) {
           console.log('[SHIELD] Blocked CNAME:', hostname, 'URL:', url);
@@ -388,12 +389,6 @@ function setupPrivacyShield(sess, options = {}) {
     callback({ cancel: false });
   });
 
-  if (enableCosmeticFiltering) {
-    sess.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
-      const webContents = details.webContents;
-      if (webContents) applyCosmeticFilters(webContents).catch(() => {});
-    });
-  }
 }
 
 async function applyCosmeticFilters(webContents) {
