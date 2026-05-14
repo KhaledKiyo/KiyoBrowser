@@ -136,10 +136,6 @@ body {
   color: var(--text-dim);
 }
 
-.tab-title,
-.tab-close {
-  display: none;
-}
 
 .tab::after {
   content: attr(data-title);

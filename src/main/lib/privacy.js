@@ -63,7 +63,7 @@ const BLOCKED_DOMAINS = new Set([
 const FAST_PATTERNS = [
   '/ads/', '/ad-server/', '/pixels/', '/track/', '/track?', '/collect?', '/telemetry/', 
   '/analytics/', 'miner.js', 'fwtracks', 'adservices', 'analytics-events', 'pagead.js', 'ads.js',
-  'flash', 'banner', 'sponsor', 'mistat', 'ad.intl', 'intercom', 'segment', 'metrika', 'mc.yandex'
+  'flash', 'banner', 'sponsor', 'mistat', 'ad.intl', 'intercom', '/segment.js', 'api.segment.io', 'metrika', 'mc.yandex'
 ];
 
 const BLOCKED_PATTERNS_REGEX = [

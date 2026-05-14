@@ -65,17 +65,30 @@ const SETTING_SCHEMA = {
 let settings = { ...SETTINGS_DEFAULTS };
 let bookmarks = [];
 let history = [];
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+const saveSettings = debounce(() => writeJSON(SETTINGS_PATH, settings), 500);
+const saveBookmarks = debounce(() => writeJSON(BOOKMARKS_PATH, bookmarks), 500);
+const saveHistory = debounce(() => writeJSON(HISTORY_PATH, history), 500);
+
 function loadSettings() {
   const raw = readJSON(SETTINGS_PATH, {});
   for (const [key, validate] of Object.entries(SETTING_SCHEMA)) {
     if (key in raw && validate(raw[key])) settings[key] = raw[key];
   }
 }
-function saveSettings() { writeJSON(SETTINGS_PATH, settings); }
 function loadBookmarks() { bookmarks = readJSON(BOOKMARKS_PATH, []); }
-function saveBookmarks() { writeJSON(BOOKMARKS_PATH, bookmarks); }
 function loadHistory() { history = readJSON(HISTORY_PATH, []); }
-function saveHistory() { writeJSON(HISTORY_PATH, history); }
 
 // ─── URL resolution + security ────────────────────────────────────────────────
 function resolveUrl(raw) {
@@ -484,10 +497,12 @@ ipcMain.on('reload', (event) => {
   if (v) v.webContents.reload();
 });
 
+const saveSessionDebounced = debounce((data) => writeJSON(SESSION_PATH, data), 500);
+
 ipcMain.on('save-session', (event, sessionData) => {
   const winState = getWinState(event.sender);
   if (winState && !winState.isPrivate) {
-    writeJSON(SESSION_PATH, sessionData);
+    saveSessionDebounced(sessionData);
   }
 });
 
@@ -663,24 +678,36 @@ app.whenReady().then(() => {
   // Apply Shield to default session too
   setupPrivacyShield(session.defaultSession, { enableCnameHeuristic: true });
 
-  // Global Shortcuts
+  // Local Shortcuts (Intercepted at WebContents level)
   const shortcuts = {
-    'CommandOrControl+T': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'new-tab'),
-    'CommandOrControl+Shift+N': () => ipcMain.emit('open-private-window'),
-    'CommandOrControl+W': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'close-tab'),
-    'CommandOrControl+L': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'focus-url'),
-    'CommandOrControl+R': () => {
-      const winState = windows.get(BrowserWindow.getFocusedWindow()?.webContents.id);
+    't': (win) => win.webContents.send('shortcut', 'new-tab'),
+    'n': (win, e) => { if (e.shift) ipcMain.emit('open-private-window'); },
+    'w': (win) => win.webContents.send('shortcut', 'close-tab'),
+    'l': (win) => win.webContents.send('shortcut', 'focus-url'),
+    'r': (win) => {
+      const winState = windows.get(win.webContents.id);
       const v = winState?.views.get(winState.activeViewId);
       if (v) v.webContents.reload();
     },
-    'CommandOrControl+F': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'open-find'),
-    'CommandOrControl+=': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-in'),
-    'CommandOrControl+-': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-out'),
-    'CommandOrControl+0': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-reset'),
+    'f': (win) => win.webContents.send('shortcut', 'open-find'),
+    '=': (win) => win.webContents.send('shortcut', 'zoom-in'),
+    '-': (win) => win.webContents.send('shortcut', 'zoom-out'),
+    '0': (win) => win.webContents.send('shortcut', 'zoom-reset'),
   };
-  for (const [accel, fn] of Object.entries(shortcuts)) globalShortcut.register(accel, fn);
+
+  app.on('web-contents-created', (_, wc) => {
+    wc.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && (input.control || input.meta)) {
+        const key = input.key.toLowerCase();
+        const winState = getWinState(wc);
+        const win = winState ? winState.window : BrowserWindow.getFocusedWindow();
+        if (win && shortcuts[key]) {
+          shortcuts[key](win, input);
+          event.preventDefault();
+        }
+      }
+    });
+  });
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
