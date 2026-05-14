@@ -12,6 +12,17 @@
 </head>
 
 <body>
+    <div id="clear-confirm-overlay" class="confirm-overlay" style="display: none;">
+        <div class="confirm-box">
+            <h3>Clear History?</h3>
+            <p>This action cannot be undone. All your browsing records will be removed.</p>
+            <div class="confirm-actions">
+                <button id="confirm-cancel">Cancel</button>
+                <button id="confirm-clear" class="danger">Clear Everything</button>
+            </div>
+        </div>
+    </div>
+
     <div class="history-container">
         <header class="history-header">
             <div class="header-left">
@@ -36,11 +47,14 @@
     </div>
 
     <script>
-        lucide.createIcons();
+        lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
 
         const historyList = document.getElementById('history-list');
         const searchInput = document.getElementById('history-search');
         const clearBtn = document.getElementById('clear-history');
+        const confirmOverlay = document.getElementById('clear-confirm-overlay');
+        const confirmCancel = document.getElementById('confirm-cancel');
+        const confirmClear = document.getElementById('confirm-clear');
 
         let allHistory = [];
 
@@ -60,13 +74,12 @@
         }
 
         function renderHistory(items) {
-            historyList.innerHTML = '';
-
             if (items.length === 0) {
                 historyList.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-dim);">No history found.</div>';
                 return;
             }
 
+            // Build target groups
             const groups = {};
             items.forEach(item => {
                 const label = getGroupLabel(item.visitedAt);
@@ -74,22 +87,39 @@
                 groups[label].push(item);
             });
 
-            for (const [label, groupItems] of Object.entries(groups)) {
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'history-group';
+            // Remove groups that no longer exist
+            historyList.querySelectorAll('.history-group').forEach(g => {
+                const label = g.querySelector('.group-title')?.textContent;
+                if (label && !groups[label]) g.remove();
+            });
 
-                const titleDiv = document.createElement('div');
-                titleDiv.className = 'group-title';
-                titleDiv.textContent = label;
-                groupDiv.appendChild(titleDiv);
+            for (const [label, groupItems] of Object.entries(groups)) {
+                let groupDiv = [...historyList.querySelectorAll('.history-group')]
+                    .find(g => g.querySelector('.group-title')?.textContent === label);
+
+                if (!groupDiv) {
+                    groupDiv = document.createElement('div');
+                    groupDiv.className = 'history-group';
+                    const titleDiv = document.createElement('div');
+                    titleDiv.className = 'group-title';
+                    titleDiv.textContent = label;
+                    groupDiv.appendChild(titleDiv);
+                    historyList.appendChild(groupDiv);
+                }
+
+                // Remove items from this group that are no longer in the list
+                groupDiv.querySelectorAll('.history-item[data-url]').forEach(el => {
+                    if (!groupItems.find(i => i.url === el.dataset.url)) el.remove();
+                });
 
                 groupItems.forEach(item => {
+                    if (groupDiv.querySelector(`.history-item[data-url="${CSS.escape(item.url)}"]`)) return;
+
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'history-item';
-                    itemDiv.onclick = (e) => {
-                        if (!e.target.closest('.delete-item')) {
-                            window.electronAPI.navigate(item.url);
-                        }
+                    itemDiv.dataset.url = item.url;
+                    itemDiv.onclick = e => {
+                        if (!e.target.closest('.delete-item')) window.electronAPI.navigate(item.url);
                     };
 
                     const timeSpan = document.createElement('span');
@@ -105,7 +135,7 @@
                         img.src = `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=32`;
                         img.onerror = () => {
                             faviconWrap.innerHTML = '<i data-lucide="globe" class="default-icon"></i>';
-                            lucide.createIcons({ root: faviconWrap });
+                            lucide.createIcons({ nodes: [faviconWrap], attrs: { 'stroke-width': 2, 'class': 'lucide' } });
                         };
                         faviconWrap.appendChild(img);
                     } catch (e) {
@@ -126,7 +156,7 @@
                     const deleteBtn = document.createElement('button');
                     deleteBtn.className = 'delete-item';
                     deleteBtn.innerHTML = '<i data-lucide="x"></i>';
-                    deleteBtn.onclick = (e) => {
+                    deleteBtn.onclick = e => {
                         e.stopPropagation();
                         window.electronAPI.removeHistoryEntry(item.url);
                     };
@@ -135,13 +165,11 @@
                     itemDiv.appendChild(faviconWrap);
                     itemDiv.appendChild(infoDiv);
                     itemDiv.appendChild(deleteBtn);
-
                     groupDiv.appendChild(itemDiv);
                 });
-
-                historyList.appendChild(groupDiv);
             }
-            lucide.createIcons({ root: historyList });
+
+            lucide.createIcons({ nodes: [historyList], attrs: { 'stroke-width': 2, 'class': 'lucide' } });
         }
 
         async function loadHistory() {
@@ -160,34 +188,25 @@
         searchInput.addEventListener('input', filterHistory);
 
         clearBtn.addEventListener('click', () => {
-            if (confirm('Are you sure you want to clear all history?')) {
-                window.electronAPI.clearHistory();
-            }
+            confirmOverlay.style.display = 'flex';
+        });
+
+        confirmCancel.addEventListener('click', () => {
+            confirmOverlay.style.display = 'none';
+        });
+
+        confirmClear.addEventListener('click', () => {
+            window.electronAPI.clearHistory();
+            confirmOverlay.style.display = 'none';
         });
 
         window.electronAPI.onHistoryUpdated(() => {
             loadHistory();
         });
 
-        // Theme integration — match pattern used by all other internal pages
-        function applyTheme(settings) {
-            const old = document.getElementById('kiyo-theme-link');
-            if (old) old.remove();
-            if (settings.theme && settings.theme !== 'default') {
-                const link = document.createElement('link');
-                link.id = 'kiyo-theme-link';
-                link.rel = 'stylesheet';
-                link.href = `../../themes/${settings.theme}.css`;
-                document.head.appendChild(link);
-            }
-        }
-
-        // Bug #10 fix: subscribe to live theme changes (was missing — only called initTheme() once)
-        window.electronAPI.getSettings().then(applyTheme);
-        window.electronAPI.onThemeUpdated(applyTheme);
-
         loadHistory();
     </script>
+    <script src="../../shared/theme.js"></script>
 </body>
 
 </html>

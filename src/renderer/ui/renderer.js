@@ -37,27 +37,6 @@ const _faviconTimers = new Map();
 let _tabCreating = false;
 
 
-// ─── Theme ────────────────────────────────────────────────────────────────────
-function applyTheme(s) {
-  const old = document.getElementById('kiyo-theme-link');
-  if (old) old.remove();
-  if (s.theme && s.theme !== 'default') {
-    const link = document.createElement('link');
-    link.id = 'kiyo-theme-link';
-    link.rel = 'stylesheet';
-    link.href = `../themes/${s.theme}.css`;
-    document.head.appendChild(link);
-  } else {
-    document.documentElement.style.setProperty('--arch-blue', '#00d2ff');
-    document.documentElement.style.setProperty('--bg-dark', '#0a0b10');
-  }
-  if (s.blurIntensity !== undefined)
-    document.documentElement.style.setProperty('--header-blur', s.blurIntensity + 'px');
-  if (s.tabStyle) {
-    const r = s.tabStyle === 'square' ? '2px' : s.tabStyle === 'circle' ? '50%' : '16px';
-    document.documentElement.style.setProperty('--tab-radius', r);
-  }
-}
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 let activeMenu = null;
@@ -91,10 +70,10 @@ function createTab(url = null, existingId = null) {
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
   tabEl.id = `tab-${id}`;
-  tabEl.title = 'New Tab';
+  tabEl.setAttribute('data-title', 'New Tab');
   tabEl.innerHTML = `<span class="tab-icon"><i data-lucide="globe"></i></span>`;
   tabsBar.appendChild(tabEl);
-  lucide.createIcons();
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
 
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
@@ -162,7 +141,7 @@ async function updateBookmarkStar(url) {
   bookmarkStarBtn.innerHTML = starred
     ? `<i data-lucide="star" style="fill:var(--arch-blue);color:var(--arch-blue)"></i>`
     : `<i data-lucide="star"></i>`;
-  lucide.createIcons();
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
 }
 
 async function toggleBookmark() {
@@ -201,7 +180,7 @@ function updateSecurityIndicator(url) {
   }
   securityIndicator.innerHTML = `<i data-lucide="${icon}"></i>`;
   securityIndicator.style.color = color;
-  lucide.createIcons();
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
 }
 
 // ─── Toast notification ───────────────────────────────────────────────────────
@@ -251,7 +230,9 @@ window.electronAPI.onTitleChanged((id, title) => {
   if (!data) return;
   data.title = title;
   const el = document.getElementById(`tab-${id}`);
-  if (el) el.title = title || 'New Tab';
+  if (el) {
+    el.setAttribute('data-title', title || 'New Tab');
+  }
   saveSession();
 });
 
@@ -270,21 +251,57 @@ window.electronAPI.onFaviconChanged((id, favicon) => {
     _faviconTimers.delete(id);
     if (!document.getElementById(`tab-${id}`)) return; // tab already closed
     icon.innerHTML = '<i data-lucide="globe"></i>';
-    lucide.createIcons();
+    lucide.createIcons({
+      attrs: {
+        'stroke-width': 2,
+        'class': 'lucide'
+      },
+      nodes: [icon]
+    });
   }, 5000);
   _faviconTimers.set(id, timer);
   img.onload = () => { clearTimeout(timer); _faviconTimers.delete(id); icon.innerHTML = ''; icon.appendChild(img); };
-  img.onerror = () => { clearTimeout(timer); _faviconTimers.delete(id); icon.innerHTML = '<i data-lucide="globe"></i>'; lucide.createIcons(); };
+  img.onerror = () => { 
+    clearTimeout(timer); 
+    _faviconTimers.delete(id); 
+    icon.innerHTML = '<i data-lucide="globe"></i>'; 
+    lucide.createIcons({
+      attrs: {
+        'stroke-width': 2,
+        'class': 'lucide'
+      },
+      nodes: [icon]
+    }); 
+  };
 });
 
 window.electronAPI.onLoadingStatus((id, loading) => {
   if (activeTabId !== id) return;
   if (loading) {
     loader.style.display = 'block';
-    loader.style.width = '70%';
+    loader.style.opacity = '1';
+    loader.classList.add('active');
+    // Start at 30% and move to 70% slowly
+    loader.style.width = '30%';
+    setTimeout(() => {
+      if (loader.classList.contains('active')) {
+        loader.style.width = '70%';
+      }
+    }, 100);
   } else {
     loader.style.width = '100%';
-    setTimeout(() => { loader.style.display = 'none'; loader.style.width = '0%'; }, 300);
+    loader.classList.remove('active');
+    setTimeout(() => {
+      if (!loader.classList.contains('active')) {
+        loader.style.opacity = '0';
+        setTimeout(() => {
+          if (!loader.classList.contains('active')) {
+            loader.style.display = 'none';
+            loader.style.width = '0%';
+          }
+        }, 300);
+      }
+    }, 200);
   }
   if (!loading) document.querySelector('.initial-load-placeholder')?.remove();
 });
@@ -293,10 +310,10 @@ window.electronAPI.onTabDuplicated((id, url) => {
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
   tabEl.id = `tab-${id}`;
-  tabEl.title = 'New Tab';
+  tabEl.setAttribute('data-title', 'New Tab');
   tabEl.innerHTML = `<span class="tab-icon"><i data-lucide="globe"></i></span>`;
   tabsBar.appendChild(tabEl);
-  lucide.createIcons();
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
   tabs.set(id, { title: 'New Tab', url, favicon: null });
@@ -385,9 +402,6 @@ if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
   if (isPrivateWindow) {
     document.body.classList.add('private-mode');
   }
-
-  applyTheme(settings);
-  window.electronAPI.onThemeUpdated(applyTheme);
 
   if (session && session.tabs && session.tabs.length > 0) {
     for (const tab of session.tabs) {

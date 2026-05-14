@@ -46,36 +46,8 @@
     </div>
   </div>
 
+  <script src="../../shared/theme.js"></script>
   <script>
-    // ── Theme ──────────────────────────────────────────────────────────────────
-    let currentSearchEngine = 'google';
-
-    function getSearchUrl(query) {
-      const q = encodeURIComponent(query);
-      const engines = {
-        google: `https://www.google.com/search?q=${q}`,
-        bing: `https://www.bing.com/search?q=${q}`,
-        duckduckgo: `https://duckduckgo.com/?q=${q}`,
-      };
-      return engines[currentSearchEngine] || engines.google;
-    }
-
-    function applyTheme(settings) {
-      currentSearchEngine = settings.searchEngine || 'google';
-      const old = document.getElementById('kiyo-theme-link');
-      if (old) old.remove();
-      if (settings.theme && settings.theme !== 'default') {
-        const link = document.createElement('link');
-        link.id = 'kiyo-theme-link';
-        link.rel = 'stylesheet';
-        link.href = `../../themes/${settings.theme}.css`;
-        document.head.appendChild(link);
-      }
-    }
-
-    window.electronAPI.getSettings().then(applyTheme);
-    window.electronAPI.onThemeUpdated(applyTheme);
-
     // ── Private Mode Handshake ────────────────────────────────────────────────
     let isPrivateMode = false;
     (async () => {
@@ -200,6 +172,15 @@
     }
 
     loadLinks();
+
+    // Keep search engine in sync
+    let currentSearchEngine = 'google';
+    window.electronAPI.getSettings().then(s => {
+      if (s.searchEngine) currentSearchEngine = s.searchEngine;
+    });
+    window.electronAPI.onThemeUpdated(s => {
+      if (s.searchEngine) currentSearchEngine = s.searchEngine;
+    });
 
     // ── Modal ──────────────────────────────────────────────────────────────────
     document.getElementById('show-add-modal').addEventListener('click', () => addModal.style.display = 'flex');

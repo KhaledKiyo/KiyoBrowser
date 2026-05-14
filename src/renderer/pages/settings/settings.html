@@ -166,6 +166,7 @@
     </main>
   </div>
 
+  <script src="../../shared/theme.js"></script>
   <script>
     lucide.createIcons();
 
@@ -215,17 +216,6 @@
     function applySettingsToUI(s, fromExternalBroadcast = false) {
       // Don't reset dropdowns while the user is actively interacting with one
       if (fromExternalBroadcast && isDropdownOpen) return;
-
-      // Apply theme CSS
-      const old = document.getElementById('kiyo-theme-link');
-      if (old) old.remove();
-      if (s.theme && s.theme !== 'default') {
-        const link = document.createElement('link');
-        link.id = 'kiyo-theme-link';
-        link.rel = 'stylesheet';
-        link.href = `../../themes/${s.theme}.css`;
-        document.head.appendChild(link);
-      }
 
       // Sync dropdowns to current values
       if (s.theme) syncDropdown('theme-options', 'theme-trigger', s.theme);

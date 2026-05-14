@@ -49,17 +49,29 @@
         }
 
         function render(bookmarks) {
-            const existing = grid.querySelectorAll('.bookmark-card');
-            existing.forEach(e => e.remove());
+            // Remove cards that no longer exist
+            grid.querySelectorAll('.bookmark-card[data-url]').forEach(card => {
+                if (!bookmarks.find(b => b.url === card.dataset.url)) card.remove();
+            });
+
             if (bookmarks.length === 0) {
                 emptyMsg.style.display = '';
                 return;
             }
             emptyMsg.style.display = 'none';
-            bookmarks.forEach(bm => {
+
+            bookmarks.forEach((bm, i) => {
+                const existing = grid.querySelector(`.bookmark-card[data-url="${CSS.escape(bm.url)}"]`);
+                if (existing) {
+                    // Just update the timestamp
+                    existing.querySelector('.bm-meta').textContent = timeAgo(bm.addedAt);
+                    return;
+                }
+
                 const card = document.createElement('div');
                 card.className = 'bookmark-card';
-                
+                card.dataset.url = bm.url;
+
                 const favicon = document.createElement('img');
                 favicon.className = 'bm-favicon';
                 favicon.src = getFavicon(bm.url);
@@ -74,9 +86,7 @@
                 title.className = 'bm-title';
                 title.style.cursor = 'pointer';
                 title.textContent = bm.title || bm.url;
-                title.addEventListener('click', () => {
-                    window.electronAPI.navigate(bm.url);
-                });
+                title.addEventListener('click', () => window.electronAPI.navigate(bm.url));
                 info.appendChild(title);
 
                 const url = document.createElement('span');
@@ -101,9 +111,16 @@
                 });
                 card.appendChild(removeBtn);
 
-                grid.appendChild(card);
+                // Insert at correct position
+                const cards = grid.querySelectorAll('.bookmark-card[data-url]');
+                if (cards.length === 0 || i >= cards.length) {
+                    grid.appendChild(card);
+                } else {
+                    grid.insertBefore(card, cards[i]);
+                }
             });
-            lucide.createIcons();
+
+            lucide.createIcons({ attrs: { 'stroke-width': 2, 'class': 'lucide' }, nodes: [grid] });
         }
 
         async function load() {
@@ -123,20 +140,8 @@
             const q = e.target.value.toLowerCase();
             render(q ? allBookmarks.filter(b => (b.title || '').toLowerCase().includes(q) || b.url.toLowerCase().includes(q)) : allBookmarks);
         });
-
-        function applyTheme(s) {
-            const old = document.getElementById('kiyo-theme-link');
-            if (old) old.remove();
-            if (s.theme && s.theme !== 'default') {
-                const link = document.createElement('link');
-                link.id = 'kiyo-theme-link'; link.rel = 'stylesheet';
-                link.href = `../../themes/${s.theme}.css`;
-                document.head.appendChild(link);
-            }
-        }
-        window.electronAPI.getSettings().then(applyTheme);
-        window.electronAPI.onThemeUpdated(applyTheme);
     </script>
+    <script src="../../shared/theme.js"></script>
 </body>
 
 </html>

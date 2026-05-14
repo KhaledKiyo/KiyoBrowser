@@ -141,6 +141,31 @@ body {
   display: none;
 }
 
+.tab::after {
+  content: attr(data-title);
+  position: absolute;
+  left: 60px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  z-index: 2000;
+}
+
+.tab:hover::after {
+  opacity: 1;
+  visibility: visible;
+  left: 72px;
+}
+
 /* ── Sidebar bottom ───────────────────────────────────────────────────────── */
 .sidebar-bottom {
   display: flex;
@@ -301,8 +326,35 @@ body.private-mode #private-window-btn {
   height: 2px;
   background: var(--arch-blue);
   width: 0%;
-  transition: width 0.3s ease-out;
+  transition: width 0.4s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.3s;
   box-shadow: 0 0 10px var(--arch-blue);
+  overflow: hidden;
+}
+
+.loading-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg, 
+    transparent, 
+    rgba(255, 255, 255, 0.5), 
+    transparent
+  );
+  animation: shimmer 1.2s infinite linear;
+  display: none;
+}
+
+.loading-bar.active::after {
+  display: block;
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(200%); }
 }
 
 #browser-content {
