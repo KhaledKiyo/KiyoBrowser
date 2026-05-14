@@ -79,4 +79,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showFolderMenu: (folder) => ipcRenderer.send('show-folder-menu', folder),
   showNoteMenu: (id) => ipcRenderer.send('show-note-menu', id),
   onNoteAction: (cb) => on('note-action', (_, action) => cb(action)),
+
+  // ── Find in Page ──────────────────────────────────────────────────────────
+  findInPage: (text, options) => ipcRenderer.send('find-in-page', text, options),
+  stopFindInPage: (action) => ipcRenderer.send('stop-find-in-page', action),
+  onFoundInPage: (cb) => on('found-in-page', (_, result) => cb(result)),
+
+  // ── Zoom ──────────────────────────────────────────────────────────────────
+  setZoom: (level) => ipcRenderer.send('set-zoom', level),
+  getZoom: () => ipcRenderer.invoke('get-zoom'),
+
+  // ── Autocomplete ──────────────────────────────────────────────────────────
+  getAutocomplete: (text) => ipcRenderer.invoke('get-autocomplete', text),
 });

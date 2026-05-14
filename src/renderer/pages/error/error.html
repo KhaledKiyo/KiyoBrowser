@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation Error | Kiyo</title>
+    <link rel="stylesheet" href="error.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-icon">
+            <i data-lucide="alert-triangle"></i>
+        </div>
+        <h1>Unable to connect</h1>
+        <p class="error-desc">Kiyo couldn't load this page. Check your connection or the address.</p>
+        
+        <div class="url-box">
+            <span id="failed-url"></span>
+        </div>
+
+        <div class="error-meta">
+            <code id="error-code"></code>
+            <span id="error-text"></span>
+        </div>
+
+        <div class="actions">
+            <button onclick="window.location.reload()" class="primary">Try Again</button>
+            <button onclick="window.electronAPI.navigate('home')">Go Home</button>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" } });
+
+        const params = new URLSearchParams(window.location.search);
+        document.getElementById('failed-url').textContent = params.get('url') || 'Unknown URL';
+        document.getElementById('error-code').textContent = params.get('code') || '';
+        document.getElementById('error-text').textContent = params.get('desc') || 'An unexpected error occurred.';
+    </script>
+    <script src="../../shared/theme.js"></script>
+</body>
+</html>

@@ -16,6 +16,14 @@ const menuBtn = document.getElementById('menu-btn');
 const bookmarksBtn = document.getElementById('bookmarks-btn');
 const historyBtn = document.getElementById('history-btn');
 const bookmarkStarBtn = document.getElementById('bookmark-star-btn');
+const autocompleteList = document.getElementById('autocomplete-list');
+
+const findBar = document.getElementById('find-bar');
+const findInput = document.getElementById('find-input');
+const findResults = document.getElementById('find-results');
+const findPrev = document.getElementById('find-prev');
+const findNext = document.getElementById('find-next');
+const findClose = document.getElementById('find-close');
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let activeTabId = null;
@@ -26,6 +34,9 @@ let MAX_TABS = 20;  // overridden by main on ready
 let currentUrl = '';  // url of the active tab (for bookmark star)
 const tabs = new Map(); // id → { title, url, favicon }
 let isPrivateWindow = false;
+
+let acSelectedIndex = -1;
+let acResults = [];
 
 // ─── Tab ID counter (monotonic — avoids Date.now() collision) ─────────────────
 function nextTabId() { return self.crypto.randomUUID(); }
@@ -352,7 +363,29 @@ window.electronAPI.onShortcut(name => {
   if (name === 'open-bookmarks') window.electronAPI.navigate('bookmarks');
   if (name === 'open-history') window.electronAPI.navigate('history');
   if (name === 'toggle-bookmark') toggleBookmark();
+  if (name === 'open-find') {
+    findBar.style.display = 'flex';
+    findInput.focus();
+    findInput.select();
+    if (findInput.value) window.electronAPI.findInPage(findInput.value);
+  }
+  if (name === 'zoom-in') changeZoom(0.5);
+  if (name === 'zoom-out') changeZoom(-0.5);
+  if (name === 'zoom-reset') resetZoom();
 });
+
+async function changeZoom(delta) {
+  const current = await window.electronAPI.getZoom();
+  const next = Math.min(Math.max(current + delta, -3), 3);
+  window.electronAPI.setZoom(next);
+  const pct = Math.round(Math.pow(1.2, next) * 100);
+  showToast(`Zoom: ${pct}%`);
+}
+
+function resetZoom() {
+  window.electronAPI.setZoom(0);
+  showToast('Zoom Reset');
+}
 
 // ─── UI event listeners ───────────────────────────────────────────────────────
 addTabBtn.addEventListener('click', () => createTab());
@@ -360,6 +393,7 @@ logo.addEventListener('click', () => window.electronAPI.navigate('home'));
 
 urlInput.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
+  if (acSelectedIndex >= 0) return; // autocomplete handler takes over
   let url = urlInput.value.trim();
   if (!url) return;
   if (url === 'kiyo://settings') url = 'settings';
@@ -368,6 +402,84 @@ urlInput.addEventListener('keydown', e => {
   if (url === 'kiyo://history') url = 'history';
   window.electronAPI.navigate(url);
   urlInput.blur();
+  hideAutocomplete();
+});
+
+urlInput.addEventListener('input', async () => {
+  const text = urlInput.value.trim();
+  if (text.length < 2) { hideAutocomplete(); return; }
+  acResults = await window.electronAPI.getAutocomplete(text);
+  if (acResults.length > 0) renderAutocomplete(acResults);
+  else hideAutocomplete();
+});
+
+urlInput.addEventListener('keydown', e => {
+  if (autocompleteList.style.display === 'none') return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acSelectedIndex = Math.min(acSelectedIndex + 1, acResults.length - 1);
+    updateACSelection();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acSelectedIndex = Math.max(acSelectedIndex - 1, -1);
+    updateACSelection();
+  } else if (e.key === 'Enter' && acSelectedIndex >= 0) {
+    e.preventDefault();
+    const selected = acResults[acSelectedIndex];
+    urlInput.value = selected.url;
+    window.electronAPI.navigate(selected.url);
+    hideAutocomplete();
+    urlInput.blur();
+  } else if (e.key === 'Escape') {
+    hideAutocomplete();
+  }
+});
+
+function renderAutocomplete(results) {
+  autocompleteList.innerHTML = '';
+  results.forEach((r, i) => {
+    const item = document.createElement('div');
+    item.className = 'ac-item';
+    let icon = 'history';
+    if (r.type === 'bookmark') icon = 'star';
+    if (r.type === 'search') icon = 'search';
+    
+    item.innerHTML = `
+      <div class="ac-icon"><i data-lucide="${icon}"></i></div>
+      <div class="ac-info">
+        <span class="ac-title">${r.title}</span>
+        <span class="ac-url">${r.url}</span>
+      </div>
+    `;
+    item.addEventListener('click', () => {
+      urlInput.value = r.url;
+      window.electronAPI.navigate(r.url);
+      hideAutocomplete();
+    });
+    autocompleteList.appendChild(item);
+  });
+  autocompleteList.style.display = 'block';
+  acSelectedIndex = -1;
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [autocompleteList] });
+}
+
+function updateACSelection() {
+  const items = autocompleteList.querySelectorAll('.ac-item');
+  items.forEach((item, i) => {
+    item.classList.toggle('active', i === acSelectedIndex);
+  });
+}
+
+function hideAutocomplete() {
+  autocompleteList.style.display = 'none';
+  acSelectedIndex = -1;
+}
+
+document.addEventListener('click', e => {
+  if (!urlInput.contains(e.target) && !autocompleteList.contains(e.target)) {
+    hideAutocomplete();
+  }
 });
 
 urlInput.addEventListener('focus', () => urlInput.select());
@@ -389,6 +501,38 @@ if (noteBtn) noteBtn.addEventListener('click', () => createTab('kiyo://note'));
 if (bookmarksBtn) bookmarksBtn.addEventListener('click', () => window.electronAPI.navigate('bookmarks'));
 if (historyBtn) historyBtn.addEventListener('click', () => window.electronAPI.navigate('history'));
 if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
+
+findInput.addEventListener('input', () => {
+  const text = findInput.value;
+  if (text) window.electronAPI.findInPage(text);
+  else {
+    window.electronAPI.stopFindInPage('clearSelection');
+    findResults.textContent = '0/0';
+  }
+});
+
+findInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    window.electronAPI.findInPage(findInput.value, { forward: !e.shiftKey, findNext: true });
+  } else if (e.key === 'Escape') {
+    closeFind();
+  }
+});
+
+findPrev.addEventListener('click', () => window.electronAPI.findInPage(findInput.value, { forward: false, findNext: true }));
+findNext.addEventListener('click', () => window.electronAPI.findInPage(findInput.value, { forward: true, findNext: true }));
+findClose.addEventListener('click', closeFind);
+
+function closeFind() {
+  findBar.style.display = 'none';
+  window.electronAPI.stopFindInPage('clearSelection');
+}
+
+window.electronAPI.onFoundInPage(result => {
+  if (result.activeMatchOrdinal !== undefined) {
+    findResults.textContent = `${result.activeMatchOrdinal}/${result.matches}`;
+  }
+});
 
 // ─── Boot — uses IPC handshake instead of setTimeout ─────────────────────────
 (async () => {

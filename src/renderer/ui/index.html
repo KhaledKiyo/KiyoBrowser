@@ -48,6 +48,7 @@
         <div class="url-pill">
           <span class="url-icon" id="security-indicator"><i data-lucide="globe"></i></span>
           <input type="text" id="url-input" placeholder="Search the void or enter a URL..." spellcheck="false">
+          <div id="autocomplete-list" class="autocomplete-list" style="display: none;"></div>
           <div class="loading-bar" id="loader" style="display: none;"></div>
         </div>
 
@@ -55,6 +56,18 @@
           <i data-lucide="star"></i>
         </button>
       </header>
+      
+      <!-- Find Bar -->
+      <div id="find-bar" class="find-bar" style="display: none;">
+        <i data-lucide="search"></i>
+        <input type="text" id="find-input" placeholder="Find in page...">
+        <span id="find-results">0/0</span>
+        <div class="find-actions">
+          <button id="find-prev" title="Previous"><i data-lucide="chevron-up"></i></button>
+          <button id="find-next" title="Next"><i data-lucide="chevron-down"></i></button>
+          <button id="find-close" title="Close"><i data-lucide="x"></i></button>
+        </div>
+      </div>
 
       <main id="browser-content">
         <div class="initial-load-placeholder">

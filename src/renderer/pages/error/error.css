@@ -1,0 +1,120 @@
+:root {
+    --bg-dark: #0a0b10;
+    --text-main: #e6edf3;
+    --text-dim: #848d97;
+    --arch-blue: #00d2ff;
+    --border-color: rgba(255, 255, 255, 0.05);
+}
+
+body {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+}
+
+.error-container {
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    animation: kiyoFadeIn 0.5s ease-out;
+}
+
+@keyframes kiyoFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.error-icon {
+    width: 80px;
+    height: 80px;
+    background: rgba(255, 165, 0, 0.1);
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    color: #ffa500;
+}
+
+.error-icon svg {
+    width: 40px;
+    height: 40px;
+}
+
+h1 {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 12px;
+}
+
+.error-desc {
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    line-height: 1.6;
+}
+
+.url-box {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 24px;
+    word-break: break-all;
+}
+
+.error-meta {
+    margin-bottom: 32px;
+    font-size: 12px;
+}
+
+.error-meta code {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--arch-blue);
+    margin-right: 8px;
+}
+
+.error-meta span {
+    color: var(--text-dim);
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+button {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 10px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+button:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+button.primary {
+    background: var(--arch-blue);
+    border-color: var(--arch-blue);
+    color: #000;
+}
+
+button.primary:hover {
+    background: #00b4db;
+    box-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
+}

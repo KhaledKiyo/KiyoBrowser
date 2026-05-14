@@ -18,6 +18,7 @@ const QUICKLINKS_PATH = path.join(USER_DATA, 'kiyo-quicklinks.json');
 const MAX_TABS = 20;
 const MAX_BOOKMARKS = 500;
 const MAX_HISTORY_ENTRIES = 1000;
+const MAX_DOWNLOADS_HISTORY = 50;
 
 const { randomUUID } = require('crypto');
 function newTabId() { return randomUUID(); }
@@ -30,6 +31,7 @@ const PAGE = {
   bookmarks: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'bookmarks', 'bookmarks.html'),
   history: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'history', 'history.html'),
   note: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'note', 'note.html'),
+  error: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'error', 'error.html'),
 };
 
 function normaliseFileUrl(u) {
@@ -442,6 +444,30 @@ ipcMain.on('navigate', (event, url) => {
   if (resolved) v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
 });
 
+ipcMain.on('find-in-page', (event, text, options) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v) v.webContents.findInPage(text, options);
+});
+
+ipcMain.on('stop-find-in-page', (event, action) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v) v.webContents.stopFindInPage(action);
+});
+
+ipcMain.on('set-zoom', (event, level) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  if (v) v.webContents.setZoomLevel(level);
+});
+
+ipcMain.handle('get-zoom', (event) => {
+  const winState = getWinState(event.sender);
+  const v = winState?.views.get(winState.activeViewId);
+  return v ? v.webContents.getZoomLevel() : 0;
+});
+
 ipcMain.on('go-back', (event) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
@@ -463,6 +489,44 @@ ipcMain.on('save-session', (event, sessionData) => {
   if (winState && !winState.isPrivate) {
     writeJSON(SESSION_PATH, sessionData);
   }
+});
+
+ipcMain.handle('get-autocomplete', async (_, text) => {
+  if (!text || text.length < 2) return [];
+  const q = text.toLowerCase();
+  const results = [];
+
+  // Search Bookmarks
+  bookmarks.forEach(bm => {
+    if (bm.title.toLowerCase().includes(q) || bm.url.toLowerCase().includes(q)) {
+      results.push({ title: bm.title, url: bm.url, type: 'bookmark' });
+    }
+  });
+
+  // Search History
+  history.forEach(h => {
+    if (results.length >= 10) return;
+    if (results.some(r => r.url === h.url)) return;
+    if (h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)) {
+      results.push({ title: h.title, url: h.url, type: 'history' });
+    }
+  });
+
+  // Search Engine Suggestions (Fetch from Google)
+  try {
+    const response = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(text)}`);
+    const data = await response.json();
+    if (data && data[1]) {
+      data[1].forEach(suggestion => {
+        if (results.length >= 10) return;
+        results.push({ title: suggestion, url: suggestion, type: 'search' });
+      });
+    }
+  } catch (e) {
+    console.error('[kiyo] suggest error:', e.message);
+  }
+
+  return results.slice(0, 10);
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -501,6 +565,10 @@ function createView(winState, id, url) {
 
   bindCosmeticFilters(view.webContents);
 
+  view.webContents.on('found-in-page', (event, result) => {
+    winState.window.webContents.send('found-in-page', result);
+  });
+
   view.webContents.on('did-navigate', (_, u) => {
     const uiUrl = getUIUrl(u);
     winState.window.webContents.send('url-changed', id, uiUrl);
@@ -530,6 +598,13 @@ function createView(winState, id, url) {
 
   view.webContents.on('did-start-loading', () => winState.window.webContents.send('loading-status', id, true));
   view.webContents.on('did-stop-loading', () => winState.window.webContents.send('loading-status', id, false));
+
+  view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) { // Skip cancelled requests
+      const errorPage = `${PAGE.error()}?url=${encodeURIComponent(validatedURL)}&code=${errorCode}&desc=${encodeURIComponent(errorDescription)}`;
+      view.webContents.loadURL(errorPage).catch(() => {});
+    }
+  });
 
   switchView(winState, id);
 }
@@ -599,6 +674,10 @@ app.whenReady().then(() => {
       const v = winState?.views.get(winState.activeViewId);
       if (v) v.webContents.reload();
     },
+    'CommandOrControl+F': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'open-find'),
+    'CommandOrControl+=': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-in'),
+    'CommandOrControl+-': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-out'),
+    'CommandOrControl+0': () => BrowserWindow.getFocusedWindow()?.webContents.send('shortcut', 'zoom-reset'),
   };
   for (const [accel, fn] of Object.entries(shortcuts)) globalShortcut.register(accel, fn);
 });

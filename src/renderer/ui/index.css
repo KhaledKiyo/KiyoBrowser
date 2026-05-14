@@ -425,3 +425,142 @@ body.private-mode .url-pill {
 body.private-mode .tab-icon svg {
   color: #666;
 }
+
+/* ── Find Bar ────────────────────────────────────────────────────────────── */
+.find-bar {
+  position: absolute;
+  top: calc(var(--header-height) + 12px);
+  right: 24px;
+  width: 320px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 1000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: kiyoMenuIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.find-bar svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+}
+
+#find-input {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 13px;
+  outline: none;
+  flex-grow: 1;
+  width: 100px;
+}
+
+#find-results {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.find-actions {
+  display: flex;
+  gap: 4px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 8px;
+}
+
+.find-actions button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.find-actions button:hover {
+  color: var(--arch-blue);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+#find-close:hover {
+  color: #ff4d4d;
+  background: rgba(255, 77, 77, 0.1);
+}
+
+
+@keyframes kiyoMenuIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Autocomplete ────────────────────────────────────────────────────────── */
+.autocomplete-list {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  overflow: hidden;
+  z-index: 1000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: kiyoMenuIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ac-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.ac-item:hover, .ac-item.active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ac-item.active {
+  border-left: 3px solid var(--arch-blue);
+}
+
+.ac-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.ac-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ac-title {
+  font-size: 13px;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-url {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
