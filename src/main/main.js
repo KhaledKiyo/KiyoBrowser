@@ -4,22 +4,8 @@ const fs = require('fs');
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
 const { PrivateSessionManager } = require('./lib/session');
-const { bindCosmeticFilters } = require('./lib/privacy');
+const { setupPrivacyShield, bindCosmeticFilters } = require('./lib/privacy');
 const { readJSON, writeJSON } = require('./lib/utils');
-const { ElectronBlocker } = require('@cliqz/adblocker-electron');
-const fetch = require('cross-fetch');
-
-let sharedBlocker = null;
-async function setupAdBlocker(targetSession) {
-  try {
-    if (!sharedBlocker) {
-      sharedBlocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
-    }
-    sharedBlocker.enableBlockingInSession(targetSession);
-  } catch (e) {
-    console.error('[kiyo-adblock] Error:', e.message);
-  }
-}
 
 // ─── App config ───────────────────────────────────────────────────────────────
 const USER_DATA = app.getPath('userData');
@@ -168,14 +154,18 @@ function createWindow(isPrivate = false, restoredSession = null) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      spellcheck: true,
       partition: isPrivate ? PrivateSessionManager.getPartitionId() : undefined,
     },
   });
 
-  bindCosmeticFilters(win.webContents);
-  
   // Apply Ad Blocker to this window's session
-  setupAdBlocker(win.webContents.session);
+  setupPrivacyShield(win.webContents.session);
+  bindCosmeticFilters(win.webContents);
+
+  // Ensure spellchecker is enabled for the session (especially for private partitions)
+  win.webContents.session.setSpellCheckerEnabled(true);
+  win.webContents.session.setSpellCheckerLanguages(['en-US']);
 
   const winState = {
     window: win,
@@ -469,10 +459,27 @@ ipcMain.on('show-note-menu', (event, noteId) => {
 ipcMain.on('navigate', (event, url) => {
   const winState = getWinState(event.sender);
   if (!winState) return;
-  const v = winState.views.get(winState.activeViewId);
+  const id = winState.activeViewId;
+  const v = winState.views.get(id);
   if (!v) return;
   const resolved = resolveUrl(url);
-  if (resolved) v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
+  if (!resolved) return;
+
+  const currentUrl = v.webContents.getURL() || '';
+  const isCurrentlyInternal = currentUrl === '' || currentUrl.startsWith('file://') || currentUrl.startsWith('kiyo://');
+  const isNavigatingExternal = resolved.startsWith('http://') || resolved.startsWith('https://');
+
+  if (isCurrentlyInternal && isNavigatingExternal) {
+    winState.window.contentView.removeChildView(v);
+    winState.views.delete(id);
+    viewToWindow.delete(v.webContents.id);
+    v.webContents.destroy();
+
+    createView(winState, id, resolved);
+    switchView(winState, id);
+  } else {
+    v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
+  }
 });
 
 ipcMain.on('find-in-page', (event, text, options) => {
@@ -586,10 +593,10 @@ function createView(winState, id, url, lazy = false) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false, // OS Sandbox breaks spellchecker IPC for dictionary suggestions
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       partition: winState.partitionId,
-      spellcheck: isInternal,
+      spellcheck: true,
       enableWebSQL: isInternal,
     },
   });
@@ -611,6 +618,66 @@ function createView(winState, id, url, lazy = false) {
 
   view.webContents.on('found-in-page', (event, result) => {
     winState.window.webContents.send('found-in-page', result);
+  });
+
+  view.webContents.on('context-menu', (event, params) => {
+    const { clipboard } = require('electron');
+    const template = [];
+
+    // Spelling suggestions
+    if (params.dictionarySuggestions && params.dictionarySuggestions.length > 0) {
+      for (const suggestion of params.dictionarySuggestions) {
+        template.push({
+          label: suggestion,
+          click: () => view.webContents.replaceMisspelling(suggestion)
+        });
+      }
+      template.push({ type: 'separator' });
+    } else if (params.misspelledWord) {
+      template.push({ label: 'No Suggestions', enabled: false });
+      template.push({ type: 'separator' });
+    }
+
+    // Link Options
+    if (params.linkURL) {
+      template.push({
+        label: 'Open Link in New Tab',
+        click: () => {
+          const newId = newTabId();
+          createView(winState, newId, params.linkURL);
+          winState.window.webContents.send('tab-duplicated', newId, params.linkURL);
+        }
+      });
+      template.push({
+        label: 'Copy Link Address',
+        click: () => clipboard.writeText(params.linkURL)
+      });
+      template.push({ type: 'separator' });
+    }
+
+    // Media Options
+    if (params.mediaType === 'image') {
+      template.push({ role: 'copyImage', label: 'Copy Image' });
+      template.push({ label: 'Copy Image URL', click: () => clipboard.writeText(params.srcURL) });
+      template.push({ type: 'separator' });
+    }
+
+    // Edit Options
+    if (params.editFlags.canCut) template.push({ role: 'cut' });
+    if (params.editFlags.canCopy) template.push({ role: 'copy' });
+    if (params.editFlags.canPaste) template.push({ role: 'paste' });
+    
+    // Default actions if no selection/link
+    if (!params.linkURL && !params.selectionText && params.mediaType === 'none') {
+      template.push({ role: 'reload' });
+      template.push({ role: 'selectAll' });
+    }
+    
+    template.push({ type: 'separator' });
+    template.push({ label: 'Inspect Element', click: () => view.webContents.inspectElement(params.x, params.y) });
+
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: winState.window });
   });
 
   view.webContents.on('did-navigate', (_, u) => {
@@ -711,7 +778,11 @@ app.whenReady().then(() => {
   createWindow();
 
   // Apply Shield to default session too
-  setupAdBlocker(session.defaultSession);
+  setupPrivacyShield(session.defaultSession);
+
+  // Enable Spellchecker globally
+  session.defaultSession.setSpellCheckerEnabled(true);
+  session.defaultSession.setSpellCheckerLanguages(['en-US']);
 
   // Local Shortcuts (Intercepted at WebContents level)
   const shortcuts = {

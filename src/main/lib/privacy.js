@@ -100,8 +100,8 @@ const BLOCKED_DOMAINS = new Set([
   'aan.amazon.com', 'mgid.com', 'bingads.microsoft.com', 'ads.microsoft.com',
   'propellerads.com', 'applovin.com', 'vungle.com', 'liftoff.io',
   'indexexchange.com', 'chartboost.com', 'supersonicads.com', 'fyber.com',
-  'inmobi.com', 'outcome-ssp.supersonicads.com', 's.youtube.com',
-  'redirector.googlevideo.com', 'youtubei.googleapis.com', 'adsrvr.org',
+  'inmobi.com', 'outcome-ssp.supersonicads.com',
+  'adsrvr.org',
   'smartyads.com', 'ad.gt', 'contextweb.com', 'sharethrough.com',
   '3lift.com', 'sonobi.com', 'gumgum.com', 'teads.tv', 'kargo.com',
   'adroll.com', 'pangleglobal.com', 'adsafeprotected.com', 'insightexpressai.com',
@@ -228,20 +228,31 @@ const DYNAMIC_COSMETIC_SCRIPT = `(() => {
     'iframe[src*="criteo"]', 'iframe[src*="media.net"]',
     '.adbox', '.banner_ads', '.adsbox', '.textads',
     '.ads-box', '.ad_box', '.ad-container', '.ad-wrapper', '.ad-placement',
-    '[class^="ad_"]', '[class^="ad-"]', '[class^="ads_"]', '[class^="ads-"]',
-    '[id*="sponsor"]', '[class*="sponsor"]',
-    '[id*="promoted"]', '[class*="promoted"]',
-    '[id*="advertisement"]', '[class*="advertisement"]',
+    '.sponsored-post', '.promoted-tweet',
     'ins.adsbygoogle', '[data-ad-client]',
-    '.adsbygoogle'
+    '.adsbygoogle', 'ytd-ad-slot-renderer', 'ytd-promoted-sparkles-web-renderer',
+    'ytd-promoted-video-renderer'
   ].join(',');
   const removeMatches = () => {
     document.querySelectorAll(selectors).forEach((node) => {
-      if (node && node.parentNode) node.parentNode.removeChild(node);
+      if (node && node.style && node.style.display !== 'none') {
+        node.style.setProperty('display', 'none', 'important');
+      }
+    });
+    
+    // Force spellcheck to be enabled on all inputs (bypasses Google's spellcheck="false")
+    document.querySelectorAll('textarea, input[type="text"], input[type="search"], [contenteditable]').forEach(el => {
+      if (el.getAttribute('spellcheck') === 'false') {
+        el.setAttribute('spellcheck', 'true');
+      }
     });
   };
   removeMatches();
-  const observer = new MutationObserver(() => removeMatches());
+  let _kiyoTimer = null;
+  const observer = new MutationObserver(() => {
+    if (_kiyoTimer) return;
+    _kiyoTimer = setTimeout(() => { _kiyoTimer = null; removeMatches(); }, 250);
+  });
   observer.observe(document.documentElement || document, { childList: true, subtree: true });
 })();`;
 
@@ -393,6 +404,11 @@ function setupPrivacyShield(sess, options = {}) {
 
 async function applyCosmeticFilters(webContents) {
   if (!webContents || webContents.isDestroyed()) return;
+  const currentUrl = webContents.getURL() || '';
+  if (currentUrl.includes('youtube.com') || currentUrl.includes('youtu.be')) {
+    return; // Bypass completely for YouTube, let the native adblocker handle it
+  }
+
   const previousKey = COSMETIC_KEY_BY_WEBCONTENTS.get(webContents);
   if (previousKey) {
     try { await webContents.removeInsertedCSS(previousKey); } catch { }
