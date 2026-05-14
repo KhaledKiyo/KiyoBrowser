@@ -650,7 +650,9 @@ function createView(winState, id, url, lazy = false) {
     }
   });
 
-  switchView(winState, id);
+  if (!lazy) {
+    switchView(winState, id);
+  }
 }
 
 function switchView(winState, id) {
