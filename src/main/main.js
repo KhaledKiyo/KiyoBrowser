@@ -4,8 +4,22 @@ const fs = require('fs');
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
 const { PrivateSessionManager } = require('./lib/session');
-const { setupPrivacyShield, bindCosmeticFilters } = require('./lib/privacy');
+const { bindCosmeticFilters } = require('./lib/privacy');
 const { readJSON, writeJSON } = require('./lib/utils');
+const { ElectronBlocker } = require('@cliqz/adblocker-electron');
+const fetch = require('cross-fetch');
+
+let sharedBlocker = null;
+async function setupAdBlocker(targetSession) {
+  try {
+    if (!sharedBlocker) {
+      sharedBlocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
+    }
+    sharedBlocker.enableBlockingInSession(targetSession);
+  } catch (e) {
+    console.error('[kiyo-adblock] Error:', e.message);
+  }
+}
 
 // ─── App config ───────────────────────────────────────────────────────────────
 const USER_DATA = app.getPath('userData');
@@ -160,8 +174,8 @@ function createWindow(isPrivate = false, restoredSession = null) {
 
   bindCosmeticFilters(win.webContents);
   
-  // Apply Privacy Shield to this window's session
-  setupPrivacyShield(win.webContents.session, { enableCnameHeuristic: true });
+  // Apply Ad Blocker to this window's session
+  setupAdBlocker(win.webContents.session);
 
   const winState = {
     window: win,
@@ -365,7 +379,7 @@ ipcMain.handle('get-available-themes', () => {
 ipcMain.handle('get-quick-links', () => readJSON(QUICKLINKS_PATH, null));
 ipcMain.on('save-quick-links', (_, links) => writeJSON(QUICKLINKS_PATH, links));
 
-ipcMain.on('create-tab', (event, id, url) => {
+ipcMain.on('create-tab', (event, id, url, lazy = false) => {
   const winState = getWinState(event.sender);
   if (!winState) return;
   if (winState.views.size >= MAX_TABS) {
@@ -373,7 +387,7 @@ ipcMain.on('create-tab', (event, id, url) => {
     return;
   }
   const resolved = resolveUrl(url) || PAGE.home();
-  createView(winState, id, resolved);
+  createView(winState, id, resolved, lazy);
 });
 
 ipcMain.on('switch-tab', (event, id) => {
@@ -566,7 +580,7 @@ function getWinState(sender) {
   return windows.get(sender.id) || viewToWindow.get(sender.id);
 }
 
-function createView(winState, id, url) {
+function createView(winState, id, url, lazy = false) {
   const isInternal = url.startsWith('file://') || url.startsWith('kiyo://');
   const view = new WebContentsView({
     webPreferences: {
@@ -582,7 +596,12 @@ function createView(winState, id, url) {
 
   winState.views.set(id, view);
   viewToWindow.set(view.webContents.id, winState);
-  view.webContents.loadURL(url).catch(e => console.error('[kiyo] view load:', e.message));
+  
+  if (lazy) {
+    view.pendingUrl = url;
+  } else {
+    view.webContents.loadURL(url).catch(e => console.error('[kiyo] view load:', e.message));
+  }
 
   view.webContents.on('page-favicon-updated', (_, favs) => {
     if (favs?.length) winState.window.webContents.send('favicon-changed', id, favs[0]);
@@ -641,9 +660,13 @@ function switchView(winState, id) {
   winState.activeViewId = id;
   const v = winState.views.get(id);
   if (v) {
+    if (v.pendingUrl) {
+      v.webContents.loadURL(v.pendingUrl).catch(e => console.error('[kiyo] view load:', e.message));
+      v.pendingUrl = null;
+    }
     winState.window.contentView.addChildView(v);
     updateActiveViewBounds(winState);
-    winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL()));
+    winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
   }
 }
 
@@ -686,7 +709,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Apply Shield to default session too
-  setupPrivacyShield(session.defaultSession, { enableCnameHeuristic: true });
+  setupAdBlocker(session.defaultSession);
 
   // Local Shortcuts (Intercepted at WebContents level)
   const shortcuts = {

@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rendererReady: () => ipcRenderer.invoke('renderer-ready'),
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
-  createTab: (id, url) => ipcRenderer.send('create-tab', id, url),
+  createTab: (id, url, lazy) => ipcRenderer.send('create-tab', id, url, lazy),
   switchTab: (id) => ipcRenderer.send('switch-tab', id),
   closeTab: (id) => ipcRenderer.send('close-tab', id),
   duplicateTab: (id) => ipcRenderer.send('duplicate-tab', id),

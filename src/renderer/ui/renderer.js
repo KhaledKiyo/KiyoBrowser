@@ -70,18 +70,18 @@ window.electronAPI.onTabMenuAction((id, action) => {
 });
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
-function createTab(url = null, existingId = null) {
+function createTab(url = null, existingId = null, lazy = false, title = 'New Tab') {
   // Bug #23: guard against double-click creating an orphan DOM tab
   if (_tabCreating) return;
   if (tabs.size >= MAX_TABS) { showToast('Tab limit reached (' + MAX_TABS + ' max)', 'error'); return; }
   _tabCreating = true;
   const id = existingId || nextTabId();
-  window.electronAPI.createTab(id, url);
+  window.electronAPI.createTab(id, url, lazy);
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
   tabEl.id = `tab-${id}`;
-  tabEl.setAttribute('data-title', 'New Tab');
+  tabEl.setAttribute('data-title', title);
   tabEl.innerHTML = `<span class="tab-icon"><i data-lucide="globe"></i></span>`;
   tabsBar.appendChild(tabEl);
   lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [tabEl] });
@@ -89,8 +89,8 @@ function createTab(url = null, existingId = null) {
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
 
-  tabs.set(id, { title: 'New Tab', url, favicon: null });
-  switchTab(id);
+  tabs.set(id, { title, url, favicon: null });
+  if (!lazy) switchTab(id);
   updateAddTabButton();
   saveSession();
   _tabCreating = false;
@@ -555,7 +555,8 @@ window.electronAPI.onFoundInPage(result => {
 
   if (session && session.tabs && session.tabs.length > 0) {
     for (const tab of session.tabs) {
-      createTab(tab.url || 'home', tab.id);
+      const isLazy = tab.id !== session.activeTabId;
+      createTab(tab.url || 'home', tab.id, isLazy, tab.title || 'New Tab');
     }
     if (session.activeTabId && tabs.has(session.activeTabId)) {
       switchTab(session.activeTabId);
