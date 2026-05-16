@@ -17,7 +17,7 @@ const BLOCKED_DOMAINS = new Set([
   'pubmatic.com', 'rubiconproject.com', 'casalemedia.com', 'yieldmo.com',
   'smartadserver.com', 'bidswitch.net', 'lijit.com', 'adnxs-simple.com',
   'adcolony.com', 'media.net', 'unityads.unity3d.com',
-  
+
   // Analytics & Modern Trackers
   'google-analytics.com', 'analytics.google.com', 'googletagmanager.com',
   'googleoptimize.com', 'clarity.ms', 'cloudflareinsights.com',
@@ -28,20 +28,20 @@ const BLOCKED_DOMAINS = new Set([
   'fullstory.com', 'logrocket.io', 'bugsnag.com', 'bugsnag.io',
   'stats.wp.com', 'pixel.facebook.com', 'googleanalytics.com',
   '2o7.net', 'omtrdc.net', 'connect.facebook.net', 'an.facebook.com',
-  
+
   // Social Trackers
   'ads.tiktok.com', 'analytics.tiktok.com', 'ads-sg.tiktok.com', 'analytics-sg.tiktok.com',
   'business-api.tiktok.com', 'ads-api.tiktok.com', 'byteoversea.com', 'tiktokcdn.com',
   'ads-twitter.com', 'ads-api.twitter.com', 'trk.pinterest.com', 'log.pinterest.com',
   'ads.pinterest.com', 'events.reddit.com', 'events.redditmedia.com',
   'ads.youtube.com', 'ads.linkedin.com', 'analytics.pointdrive.linkedin.com',
-  
+
   // Search Engine Ad-Subdomains
   'ads.yahoo.com', 'gemini.yahoo.com', 'adfox.yandex.ru', 'metrika.yandex.ru',
   'appmetrica.yandex.ru', 'adfstat.yandex.ru', 'offerwall.yandex.net',
   'analytics.yahoo.com', 'analytics.query.yahoo.com', 'partnerads.ysm.yahoo.com',
   'adtech.yahooinc.com', 'mc.yandex.ru', 'an.yandex.ru',
-  
+
   // OEM Telemetry
   'samsungads.com', 'samsunghealthcn.com', 'nmetrics.samsung.com', 'smetrics.samsung.com',
   'oneplus.cn', 'oneplus.net', 'mzstatic.com',
@@ -54,7 +54,7 @@ const BLOCKED_DOMAINS = new Set([
   'logbak.hicloud.com', 'metrics.data.hicloud.com', 'metrics2.data.hicloud.com',
   'grs.hicloud.com', 'iot-logser.realme.com', 'iot-eu-logser.realme.com',
   'bdapi-ads.realmemobile.com', 'bdapi-in-ads.realmemobile.com',
-  
+
   // Cloud Trackers
   'analytics.s3.amazonaws.com', 'analyticsengine.s3.amazonaws.com',
   'adtago.s3.amazonaws.com', 'advice-ads.s3.amazonaws.com',
@@ -129,7 +129,7 @@ const BLOCKED_DOMAINS = new Set([
   'track.hubspot.com', 'trackcmp.net', 'driftt.com',
   'imasdk.googleapis.com', 'dai.google.com', 'jwpsrv.com', 'jwpcdn.com',
   'fwmrm.net', 'connatix.com', 'innovid.com', 'tremorhub.com',
-  
+
   // Last batch of missing domains
   'mineralt.io', 'cdn.segment.com', 'ironsource.mobi', 'zenaps.com', 'is.com', 'popads.net'
 ]);
@@ -358,7 +358,7 @@ function warmCnameLookup(hostname) {
 
 function setupPrivacyShield(sess, options = {}) {
   const { enableCnameHeuristic = true, enableCosmeticFiltering = true } = options;
-  
+
   sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     const url = details.url;
     if (url.startsWith('kiyo://') || url.startsWith('file://')) return callback({ cancel: false });
@@ -423,7 +423,7 @@ async function applyCosmeticFilters(webContents) {
 
 function bindCosmeticFilters(webContents) {
   if (!webContents) return;
-  const run = () => applyCosmeticFilters(webContents).catch(() => {});
+  const run = () => applyCosmeticFilters(webContents).catch(() => { });
   webContents.on('dom-ready', run);
   webContents.on('did-navigate', run);
   webContents.on('did-navigate-in-page', run);

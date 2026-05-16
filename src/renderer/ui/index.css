@@ -175,20 +175,21 @@ body {
 
 /* ── Private Mode Adjustments ─────────────────────────────────────────────── */
 body.private-mode .browser-sidebar {
-    background: #0f0a1a; /* Darker, slightly purple background */
-    border-right: 1px solid rgba(157, 80, 187, 0.2);
+  background: #0f0a1a;
+  /* Darker, slightly purple background */
+  border-right: 1px solid rgba(157, 80, 187, 0.2);
 }
 
 body.private-mode .logo {
-    background: linear-gradient(135deg, #9d50bb, #6e48aa);
-    box-shadow: 0 0 15px rgba(157, 80, 187, 0.4);
+  background: linear-gradient(135deg, #9d50bb, #6e48aa);
+  box-shadow: 0 0 15px rgba(157, 80, 187, 0.4);
 }
 
 body.private-mode #bookmarks-btn,
 body.private-mode #history-btn,
 body.private-mode #menu-btn,
 body.private-mode #private-window-btn {
-    display: none;
+  display: none;
 }
 
 .side-btn {
@@ -334,12 +335,10 @@ body.private-mode #private-window-btn {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    90deg, 
-    transparent, 
-    rgba(255, 255, 255, 0.5), 
-    transparent
-  );
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.5),
+      transparent);
   animation: shimmer 1.2s infinite linear;
   display: none;
 }
@@ -349,8 +348,13 @@ body.private-mode #private-window-btn {
 }
 
 @keyframes shimmer {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(200%); }
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(200%);
+  }
 }
 
 #browser-content {
@@ -393,12 +397,14 @@ body.private-mode #private-window-btn {
     opacity: 0.6;
   }
 }
+
 /* ── Private Mode (Incognito) ─────────────────────────────────────────────── */
 body.private-mode {
   --bg-dark: #050508;
   --bg-sidebar: #08090d;
   --bg-header: rgba(5, 5, 8, 0.85);
-  --arch-blue: #9499ff; /* Muted purple-blue for private mode */
+  --arch-blue: #9499ff;
+  /* Muted purple-blue for private mode */
   --arch-blue-glow: rgba(148, 153, 255, 0.15);
 }
 
@@ -496,8 +502,15 @@ body.private-mode .tab-icon svg {
 
 
 @keyframes kiyoMenuIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Autocomplete ────────────────────────────────────────────────────────── */
@@ -524,7 +537,8 @@ body.private-mode .tab-icon svg {
   transition: background 0.2s;
 }
 
-.ac-item:hover, .ac-item.active {
+.ac-item:hover,
+.ac-item.active {
   background: rgba(255, 255, 255, 0.05);
 }
 
