@@ -71,13 +71,15 @@ function kiyoPrompt(label, placeholder = '') {
     _dialogInput.value = '';
     _dialogInput.placeholder = placeholder;
     _dialogOverlay.style.display = 'flex';
-    _dialogInput.focus();
+    // Small timeout so the focus doesn't immediately get stolen back
+    setTimeout(() => _dialogInput.focus(), 30);
 
     function finish(value) {
       _dialogOverlay.style.display = 'none';
       _dialogOk.removeEventListener('click', onOk);
       _dialogCancel.removeEventListener('click', onCancel);
       _dialogInput.removeEventListener('keydown', onKey);
+      _dialogOverlay.removeEventListener('click', onOverlayClick);
       resolve(value);
     }
     function onOk()     { finish(_dialogInput.value.trim() || null); }
@@ -86,9 +88,12 @@ function kiyoPrompt(label, placeholder = '') {
       if (e.key === 'Enter')  { e.preventDefault(); finish(_dialogInput.value.trim() || null); }
       if (e.key === 'Escape') { e.preventDefault(); finish(null); }
     }
+    // Dismiss when clicking the dark backdrop (not the card itself)
+    function onOverlayClick(e) { if (e.target === _dialogOverlay) finish(null); }
     _dialogOk.addEventListener('click', onOk);
     _dialogCancel.addEventListener('click', onCancel);
     _dialogInput.addEventListener('keydown', onKey);
+    _dialogOverlay.addEventListener('click', onOverlayClick);
   });
 }
 

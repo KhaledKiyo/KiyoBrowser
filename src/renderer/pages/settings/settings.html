@@ -17,7 +17,7 @@
     <aside class="settings-sidebar">
       <h2>Settings</h2>
       <nav>
-        <button data-section="appearance"><i data-lucide="palette"></i> Appearance</button>
+        <button data-section="appearance" class="active"><i data-lucide="palette"></i> Appearance</button>
         <button data-section="general"><i data-lucide="settings"></i> General</button>
         <button data-section="performance"><i data-lucide="zap"></i> Performance</button>
         <button data-section="privacy"><i data-lucide="shield"></i> Privacy</button>
@@ -436,7 +436,7 @@
 
     document.querySelectorAll('.settings-sidebar button').forEach(btn => {
       btn.onclick = () => {
-        document.querySelector('.settings-sidebar button.active').classList.remove('active');
+        document.querySelector('.settings-sidebar button.active')?.classList.remove('active');
         btn.classList.add('active');
         const sec = btn.dataset.section;
         document.querySelectorAll('.settings-main section').forEach(s => {

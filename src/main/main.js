@@ -1109,11 +1109,40 @@ function updateActiveViewBounds(winState) {
 }
 
 function setupAdblock(sess) {
+  // YouTube CDN hostnames that must never be blocked — video streams, thumbnails, avatars
+  const YOUTUBE_ALLOWLIST = new Set([
+    'youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com',
+    'googlevideo.com', 'ytimg.com', 'yt3.ggpht.com', 'ggpht.com',
+    'youtube-nocookie.com', 'ytimg-edge.com',
+  ]);
+  function isYouTubeCDN(hostname) {
+    if (YOUTUBE_ALLOWLIST.has(hostname)) return true;
+    // Match subdomains like r3---sn-xxx.googlevideo.com
+    for (const allowed of YOUTUBE_ALLOWLIST) {
+      if (hostname.endsWith('.' + allowed)) return true;
+    }
+    return false;
+  }
+
   sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     const url = details.url;
     if (url.startsWith('kiyo://') || url.startsWith('file://')) {
       return callback({ cancel: false });
     }
+
+    // Never block media streams (video/audio) — EasyList rules can
+    // accidentally match YouTube's internal video stream URLs
+    if (details.resourceType === 'media') {
+      return callback({ cancel: false });
+    }
+
+    // Exempt all YouTube CDN requests — player scripts, thumbnails, streams
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (isYouTubeCDN(hostname)) {
+        return callback({ cancel: false });
+      }
+    } catch (e) {}
 
     if (settings.blockHyperlinkAuditing && details.resourceType === 'ping') {
       adblock.incrementStats();
@@ -1137,6 +1166,7 @@ function setupAdblock(sess) {
     callback({ cancel: false });
   });
 }
+
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
