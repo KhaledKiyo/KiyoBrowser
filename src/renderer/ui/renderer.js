@@ -15,8 +15,19 @@ const logo = document.querySelector('.logo');
 const menuBtn = document.getElementById('menu-btn');
 const bookmarksBtn = document.getElementById('bookmarks-btn');
 const historyBtn = document.getElementById('history-btn');
+const passwordsBtn = document.getElementById('passwords-btn');
 const bookmarkStarBtn = document.getElementById('bookmark-star-btn');
 const autocompleteList = document.getElementById('autocomplete-list');
+const readerModeBtn = document.getElementById('reader-mode-btn');
+
+const groupsBtn = document.getElementById('groups-btn');
+const groupsPanel = document.getElementById('groups-panel');
+const groupsList = document.getElementById('groups-list');
+const newGroupBtn = document.getElementById('new-group-btn');
+const closeGroupsBtn = document.getElementById('close-groups');
+const tabSearchOverlay = document.getElementById('tab-search-overlay');
+const tabSearchInput = document.getElementById('tab-search-input');
+const tabSearchResults = document.getElementById('tab-search-results');
 
 const findBar = document.getElementById('find-bar');
 const findInput = document.getElementById('find-input');
@@ -47,7 +58,39 @@ const _faviconTimers = new Map();
 // Bug #23: prevent double-click race from creating an orphan DOM tab
 let _tabCreating = false;
 
+// ─── Custom dialog (window.prompt is disabled in Electron sandbox) ────────────
+const _dialogOverlay = document.getElementById('kiyo-dialog-overlay');
+const _dialogLabel   = document.getElementById('kiyo-dialog-label');
+const _dialogInput   = document.getElementById('kiyo-dialog-input');
+const _dialogOk      = document.getElementById('kiyo-dialog-ok');
+const _dialogCancel  = document.getElementById('kiyo-dialog-cancel');
 
+function kiyoPrompt(label, placeholder = '') {
+  return new Promise(resolve => {
+    _dialogLabel.textContent = label;
+    _dialogInput.value = '';
+    _dialogInput.placeholder = placeholder;
+    _dialogOverlay.style.display = 'flex';
+    _dialogInput.focus();
+
+    function finish(value) {
+      _dialogOverlay.style.display = 'none';
+      _dialogOk.removeEventListener('click', onOk);
+      _dialogCancel.removeEventListener('click', onCancel);
+      _dialogInput.removeEventListener('keydown', onKey);
+      resolve(value);
+    }
+    function onOk()     { finish(_dialogInput.value.trim() || null); }
+    function onCancel() { finish(null); }
+    function onKey(e) {
+      if (e.key === 'Enter')  { e.preventDefault(); finish(_dialogInput.value.trim() || null); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+    }
+    _dialogOk.addEventListener('click', onOk);
+    _dialogCancel.addEventListener('click', onCancel);
+    _dialogInput.addEventListener('keydown', onKey);
+  });
+}
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 let activeMenu = null;
@@ -61,12 +104,26 @@ function removeContextMenu() {
 function onMenuKeydown(e) { if (e.key === 'Escape') removeContextMenu(); }
 
 function showTabContextMenu(tabId, x, y) {
-  window.electronAPI.showTabMenu(tabId);
+  const tabData = tabs.get(tabId);
+  const groupsList = Array.from(groups.values()).map(g => ({ id: g.id, name: g.name, color: g.color }));
+  window.electronAPI.showTabMenu(tabId, tabData?.groupId, groupsList);
 }
 
-window.electronAPI.onTabMenuAction((id, action) => {
+window.electronAPI.onTabMenuAction((id, action, payload) => {
   if (action === 'duplicate') window.electronAPI.duplicateTab(id);
   if (action === 'close') closeTab(id);
+  if (action === 'sleep') window.electronAPI.sleepTabNow(id);
+  if (action === 'wake') window.electronAPI.wakeTab(id);
+  if (action === 'new-group') {
+    kiyoPrompt('Group Name:', 'e.g. Work, Shopping…').then(name => {
+      if (name) {
+        const gid = createGroup(name);
+        addTabToGroup(id, gid);
+      }
+    });
+  }
+  if (action === 'add-to-group') addTabToGroup(id, payload);
+  if (action === 'remove-from-group') removeTabFromGroup(id);
 });
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
@@ -106,6 +163,7 @@ function switchTab(id) {
   // Refresh bookmark star for the newly active tab
   const data = tabs.get(id);
   if (data?.url) updateBookmarkStar(data.url);
+  updateReaderModeButton(id);
 }
 
 function closeTab(id) {
@@ -129,6 +187,140 @@ function updateAddTabButton() {
   addTabBtn.style.opacity = tabs.size >= MAX_TABS ? '0.35' : '';
 }
 
+// ─── Tab Groups ───────────────────────────────────────────────────────────────
+let groups = new Map();
+const GROUP_COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4ecdc4', '#a29bfe', '#fd79a8'];
+
+function createGroup(name, color) {
+  const id = nextTabId();
+  groups.set(id, { id, name, color: color || GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)], tabIds: new Set() });
+  saveSession();
+  renderGroupsPanel();
+  return id;
+}
+
+function addTabToGroup(tabId, groupId) {
+  const tabData = tabs.get(tabId);
+  const group = groups.get(groupId);
+  if (!tabData || !group) return;
+  
+  if (tabData.groupId) removeTabFromGroup(tabId);
+  
+  tabData.groupId = groupId;
+  group.tabIds.add(tabId);
+  
+  const el = document.getElementById(`tab-${tabId}`);
+  if (el) {
+    el.classList.add('has-group');
+    el.style.setProperty('--group-color', group.color);
+  }
+  saveSession();
+  renderGroupsPanel();
+}
+
+function removeTabFromGroup(tabId) {
+  const tabData = tabs.get(tabId);
+  if (!tabData || !tabData.groupId) return;
+  const group = groups.get(tabData.groupId);
+  if (group) group.tabIds.delete(tabId);
+  tabData.groupId = null;
+  const el = document.getElementById(`tab-${tabId}`);
+  if (el) {
+    el.classList.remove('has-group');
+    el.style.removeProperty('--group-color');
+  }
+  saveSession();
+  renderGroupsPanel();
+}
+
+function renderGroupsPanel() {
+  if (!groupsList) return;
+  groupsList.innerHTML = '';
+  groups.forEach(g => {
+    const row = document.createElement('div');
+    row.className = 'group-item';
+    row.innerHTML = `
+      <div class="group-dot" style="background: ${g.color}"></div>
+      <div class="group-info">
+        <div class="group-name">${g.name}</div>
+        <div class="group-count">${g.tabIds.size} tab${g.tabIds.size === 1 ? '' : 's'}</div>
+      </div>
+      <button class="group-delete"><i data-lucide="trash-2"></i></button>
+    `;
+    
+    row.addEventListener('mouseenter', () => {
+      g.tabIds.forEach(id => document.getElementById(`tab-${id}`)?.classList.add('group-glow'));
+    });
+    row.addEventListener('mouseleave', () => {
+      g.tabIds.forEach(id => document.getElementById(`tab-${id}`)?.classList.remove('group-glow'));
+    });
+    
+    row.querySelector('.group-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      Array.from(g.tabIds).forEach(id => removeTabFromGroup(id));
+      groups.delete(g.id);
+      saveSession();
+      renderGroupsPanel();
+    });
+    
+    groupsList.appendChild(row);
+  });
+  lucide.createIcons({ nodes: [...groupsList.querySelectorAll('.group-delete')] });
+}
+
+if (groupsBtn) groupsBtn.addEventListener('click', () => {
+  groupsPanel.style.display = groupsPanel.style.display === 'none' ? 'flex' : 'none';
+  renderGroupsPanel();
+});
+if (closeGroupsBtn) closeGroupsBtn.addEventListener('click', () => groupsPanel.style.display = 'none');
+if (newGroupBtn) newGroupBtn.addEventListener('click', () => {
+  kiyoPrompt('Group Name:', 'e.g. Work, Shopping…').then(name => {
+    if (name) createGroup(name);
+  });
+});
+
+// ─── Custom Tab Tooltips ──────────────────────────────────────────────────────
+let _tooltipTimer = null;
+const tabTooltip = document.getElementById('tab-tooltip');
+const ttTitle = tabTooltip.querySelector('.tt-title');
+const ttUrl = tabTooltip.querySelector('.tt-url');
+
+tabsBar.addEventListener('mouseover', (e) => {
+  const tabEl = e.target.closest('.tab');
+  if (!tabEl) return;
+  const id = tabEl.id.replace('tab-', '');
+  const tabData = tabs.get(id);
+  if (!tabData) return;
+
+  if (_tooltipTimer) clearTimeout(_tooltipTimer);
+  _tooltipTimer = setTimeout(() => {
+    let title = tabData.title || 'New Tab';
+    if (tabEl.classList.contains('tab-sleeping')) title = `💤 ${title} (sleeping)`;
+    ttTitle.textContent = title;
+    
+    let urlText = tabData.url || 'kiyo://home';
+    if (urlText.startsWith('kiyo://')) urlText = urlText.replace('kiyo://', '');
+    ttUrl.textContent = urlText;
+    
+    const rect = tabEl.getBoundingClientRect();
+    tabTooltip.style.top = `${rect.top}px`;
+    tabTooltip.style.left = `calc(var(--sidebar-width) + 8px)`;
+    tabTooltip.style.display = 'block';
+  }, 300);
+});
+
+tabsBar.addEventListener('mouseout', (e) => {
+  const tabEl = e.target.closest('.tab');
+  if (!tabEl) return;
+  if (_tooltipTimer) clearTimeout(_tooltipTimer);
+  tabTooltip.style.display = 'none';
+});
+
+tabsBar.addEventListener('click', () => {
+  if (_tooltipTimer) clearTimeout(_tooltipTimer);
+  tabTooltip.style.display = 'none';
+});
+
 // ─── Session persistence ──────────────────────────────────────────────────────
 let _sessionTimer = null;
 function saveSession() {
@@ -136,9 +328,10 @@ function saveSession() {
   if (_sessionTimer) clearTimeout(_sessionTimer);
   _sessionTimer = setTimeout(() => {
     const sessionTabs = [...tabs.entries()].map(([id, data]) => ({
-      id, url: data.url || 'home', title: data.title,
+      id, url: data.url || 'home', title: data.title, groupId: data.groupId
     }));
-    window.electronAPI.saveSession({ tabs: sessionTabs, activeTabId });
+    const sessionGroups = Array.from(groups.values()).map(g => ({ ...g, tabIds: Array.from(g.tabIds) }));
+    window.electronAPI.saveSession({ tabs: sessionTabs, activeTabId, groups: sessionGroups });
   }, 1000);
 }
 
@@ -320,6 +513,9 @@ window.electronAPI.onLoadingStatus((id, loading) => {
       }
     }, 200);
   }
+  if (!loading && activeTabId === id) {
+    updateReaderModeButton(id);
+  }
   if (!loading) document.querySelector('.initial-load-placeholder')?.remove();
 });
 
@@ -340,6 +536,37 @@ window.electronAPI.onTabDuplicated((id, url) => {
 });
 
 window.electronAPI.onTabLimitReached(() => showToast('Tab limit reached (' + MAX_TABS + ' max)', 'error'));
+
+window.electronAPI.onTabSlept((id) => {
+  const el = document.getElementById(`tab-${id}`);
+  if (!el) return;
+  el.classList.add('tab-sleeping');
+  const icon = el.querySelector('.tab-icon');
+  icon.innerHTML = '<i data-lucide="moon"></i>';
+  lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [icon] });
+  
+  const title = el.getAttribute('data-title') || 'New Tab';
+});
+
+window.electronAPI.onTabWoke((id, url) => {
+  const el = document.getElementById(`tab-${id}`);
+  if (!el) return;
+  el.classList.remove('tab-sleeping');
+  const icon = el.querySelector('.tab-icon');
+  
+  const data = tabs.get(id);
+  if (data && data.favicon) {
+    const img = document.createElement('img');
+    img.src = data.favicon;
+    icon.innerHTML = '';
+    icon.appendChild(img);
+  } else {
+    icon.innerHTML = '<i data-lucide="globe"></i>';
+    lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [icon] });
+  }
+  
+  const title = el.getAttribute('data-title') || 'New Tab';
+});
 
 // Downloads — badge counts unseen completed + in-progress
 window.electronAPI.onDownloadsUpdated(downloads => {
@@ -368,6 +595,7 @@ window.electronAPI.onShortcut(name => {
   if (name === 'open-settings') window.electronAPI.navigate('settings');
   if (name === 'open-bookmarks') window.electronAPI.navigate('bookmarks');
   if (name === 'open-history') window.electronAPI.navigate('history');
+  if (name === 'open-passwords') window.electronAPI.navigate('passwords');
   if (name === 'toggle-bookmark') toggleBookmark();
   if (name === 'open-find') {
     findBar.style.display = 'flex';
@@ -378,6 +606,17 @@ window.electronAPI.onShortcut(name => {
   if (name === 'zoom-in') changeZoom(0.5);
   if (name === 'zoom-out') changeZoom(-0.5);
   if (name === 'zoom-reset') resetZoom();
+  if (name === 'toggle-reader') triggerReaderMode();
+  if (name === 'tab-search') {
+    if (tabSearchOverlay.style.display === 'flex') {
+      tabSearchOverlay.style.display = 'none';
+    } else {
+      tabSearchOverlay.style.display = 'flex';
+      tabSearchInput.value = '';
+      tabSearchInput.focus();
+      updateTabSearch('');
+    }
+  }
 });
 
 async function changeZoom(delta) {
@@ -506,7 +745,58 @@ if (privateWindowBtn) privateWindowBtn.addEventListener('click', () => window.el
 if (noteBtn) noteBtn.addEventListener('click', () => createTab('kiyo://note'));
 if (bookmarksBtn) bookmarksBtn.addEventListener('click', () => window.electronAPI.navigate('bookmarks'));
 if (historyBtn) historyBtn.addEventListener('click', () => window.electronAPI.navigate('history'));
+if (passwordsBtn) passwordsBtn.addEventListener('click', () => window.electronAPI.navigate('passwords'));
 if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
+if (readerModeBtn) readerModeBtn.addEventListener('click', triggerReaderMode);
+
+window.electronAPI.onPwCheckSavePrompt(async (tabId, domain) => {
+  const save = confirm(`Do you want to save the password for ${domain}?`);
+  if (save) {
+    const success = await window.electronAPI.pwSavePending(tabId);
+    if (success) {
+      showToast('Password saved successfully!');
+    } else {
+      showToast('Could not save password. Is the vault locked?', 'error');
+    }
+  } else {
+    window.electronAPI.pwDiscardPending(tabId);
+  }
+});
+
+async function triggerReaderMode() {
+  if (!activeTabId) return;
+  try {
+    const article = await window.electronAPI.extractArticle(activeTabId);
+    if (article) {
+      sessionStorage.setItem('kiyo_reader_data', JSON.stringify(article));
+      window.electronAPI.navigate('kiyo://reader');
+    } else {
+      showToast('Could not extract article content.', 'error');
+    }
+  } catch (e) {
+    console.error(e);
+    showToast('Reader mode error.', 'error');
+  }
+}
+
+async function updateReaderModeButton(id) {
+  if (!id || !readerModeBtn) return;
+  const tabData = tabs.get(id);
+  if (!tabData || !tabData.url || tabData.url.startsWith('kiyo://') || tabData.url === '') {
+    readerModeBtn.style.display = 'none';
+    return;
+  }
+  try {
+    const isAvailable = await window.electronAPI.checkReaderMode(id);
+    if (isAvailable && activeTabId === id) {
+      readerModeBtn.style.display = 'block';
+    } else {
+      readerModeBtn.style.display = 'none';
+    }
+  } catch (e) {
+    readerModeBtn.style.display = 'none';
+  }
+}
 
 findInput.addEventListener('input', () => {
   const text = findInput.value;
@@ -540,12 +830,91 @@ window.electronAPI.onFoundInPage(result => {
   }
 });
 
+// ─── Tab Search Logic ─────────────────────────────────────────────────────────
+let tsResults = [];
+let tsSelectedIndex = 0;
+
+if (tabSearchOverlay) {
+  tabSearchOverlay.addEventListener('click', e => {
+    if (e.target === tabSearchOverlay) tabSearchOverlay.style.display = 'none';
+  });
+}
+
+if (tabSearchInput) {
+  tabSearchInput.addEventListener('input', async () => updateTabSearch(tabSearchInput.value));
+
+  tabSearchInput.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); tsSelectedIndex = Math.min(tsSelectedIndex + 1, tsResults.length - 1); renderTabSearch(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); tsSelectedIndex = Math.max(tsSelectedIndex - 1, 0); renderTabSearch(); }
+    else if (e.key === 'Enter') { e.preventDefault(); selectTabSearchResult(tsSelectedIndex); }
+    else if (e.key === 'Escape') { tabSearchOverlay.style.display = 'none'; }
+  });
+}
+
+async function updateTabSearch(query) {
+  tsResults = [];
+  const q = query.toLowerCase();
+  
+  tabs.forEach((data, id) => {
+    if (data.title.toLowerCase().includes(q) || (data.url && data.url.toLowerCase().includes(q))) {
+      tsResults.push({ type: 'tab', id, title: data.title, url: data.url, favicon: data.favicon });
+    }
+  });
+
+  if (q.length >= 2) {
+    const hist = await window.electronAPI.getHistory();
+    hist.forEach(h => {
+      if (h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)) {
+        if (!tsResults.some(r => r.url === h.url)) {
+          tsResults.push({ type: 'history', title: h.title, url: h.url });
+        }
+      }
+    });
+  }
+
+  tsResults = tsResults.slice(0, 10);
+  tsSelectedIndex = 0;
+  renderTabSearch();
+}
+
+function renderTabSearch() {
+  if (!tabSearchResults) return;
+  tabSearchResults.innerHTML = '';
+  tsResults.forEach((r, i) => {
+    const item = document.createElement('div');
+    item.className = `ts-item ${i === tsSelectedIndex ? 'active' : ''}`;
+    const iconHTML = r.type === 'tab' && r.favicon ? `<img src="${r.favicon}">` : `<i data-lucide="${r.type === 'tab' ? 'globe' : 'clock'}"></i>`;
+    item.innerHTML = `
+      <div class="ts-icon">${iconHTML}</div>
+      <div class="ts-info">
+        <div class="ts-title">${r.title || r.url}</div>
+        <div class="ts-url">${r.url || ''}</div>
+      </div>
+      <div style="color:var(--text-dim); font-size:11px;">${r.type === 'tab' ? 'Switch to tab' : 'History'}</div>
+    `;
+    item.addEventListener('click', () => selectTabSearchResult(i));
+    tabSearchResults.appendChild(item);
+  });
+  lucide.createIcons({ nodes: [...tabSearchResults.children] });
+}
+
+function selectTabSearchResult(index) {
+  const r = tsResults[index];
+  if (!r) return;
+  tabSearchOverlay.style.display = 'none';
+  if (r.type === 'tab') switchTab(r.id);
+  else {
+    urlInput.value = r.url;
+    window.electronAPI.navigate(r.url);
+  }
+}
+
 // ─── Boot — uses IPC handshake instead of setTimeout ─────────────────────────
 (async () => {
   const data = await window.electronAPI.rendererReady();
   if (!data) return;
 
-  const { settings, maxTabs, session, isPrivate } = data;
+  const { settings, maxTabs, session, isPrivate, firstRun } = data;
   MAX_TABS = maxTabs;
   isPrivateWindow = isPrivate;
 
@@ -553,10 +922,25 @@ window.electronAPI.onFoundInPage(result => {
     document.body.classList.add('private-mode');
   }
 
-  if (session && session.tabs && session.tabs.length > 0) {
+  if (firstRun && (!session || !session.tabs || session.tabs.length === 0)) {
+    createTab('kiyo://welcome');
+  } else if (session && session.tabs && session.tabs.length > 0) {
+    if (session.groups) {
+      session.groups.forEach(g => {
+        groups.set(g.id, { id: g.id, name: g.name, color: g.color, tabIds: new Set(g.tabIds) });
+      });
+    }
     for (const tab of session.tabs) {
       const isLazy = tab.id !== session.activeTabId;
       createTab(tab.url || 'home', tab.id, isLazy, tab.title || 'New Tab');
+      if (tab.groupId) {
+        const g = groups.get(tab.groupId);
+        if (g) {
+          const el = document.getElementById(`tab-${tab.id}`);
+          if (el) { el.classList.add('has-group'); el.style.setProperty('--group-color', g.color); }
+          tabs.get(tab.id).groupId = tab.groupId;
+        }
+      }
     }
     if (session.activeTabId && tabs.has(session.activeTabId)) {
       switchTab(session.activeTabId);

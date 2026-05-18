@@ -131,7 +131,12 @@ const BLOCKED_DOMAINS = new Set([
   'fwmrm.net', 'connatix.com', 'innovid.com', 'tremorhub.com',
 
   // Last batch of missing domains
-  'mineralt.io', 'cdn.segment.com', 'ironsource.mobi', 'zenaps.com', 'is.com', 'popads.net'
+  'mineralt.io', 'cdn.segment.com', 'ironsource.mobi', 'zenaps.com', 'is.com', 'popads.net',
+
+  // Adblock test suite — Yahoo/Xiaomi telemetry subdomains
+  'log.fc.yahoo.com', 'udcm.yahoo.com',
+  'data.mistat.india.xiaomi.com', 'data.mistat.rus.xiaomi.com',
+  'data.mistat.xiaomi.com',
 ]);
 
 const FAST_PATTERNS = [
@@ -169,7 +174,9 @@ const BLOCKED_PATTERNS_REGEX = [
 ];
 
 const HIGH_RISK_RESOURCES = new Set([
-  'script', 'xhr', 'fetch', 'image', 'ping', 'subFrame', 'other', 'media', 'webSocket', 'font', 'object'
+  // 'media' intentionally excluded — blocking it kills YouTube/Twitch video streams
+  // because internal YouTube URLs can contain '/ads/' as part of ad-skip signalling.
+  'script', 'xhr', 'fetch', 'image', 'ping', 'subFrame', 'other', 'webSocket', 'font', 'object'
 ]);
 
 const SAFE_FIRST_PARTY_TYPES = new Set([
@@ -388,10 +395,17 @@ function setupPrivacyShield(sess, options = {}) {
       }
 
       if (HIGH_RISK_RESOURCES.has(resourceType)) {
-        const lowerUrl = url.toLowerCase();
-        if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || BLOCKED_PATTERNS_REGEX.some(re => re.test(url))) {
-          console.log('[SHIELD] Blocked pattern:', 'URL:', url);
-          return callback({ cancel: true });
+        // Never pattern-block first-party requests from trusted media sites
+        // (YouTube internal URLs can contain '/ads/' in ad-skipping signal paths)
+        const isYouTube = hostname.endsWith('youtube.com') || hostname.endsWith('youtu.be')
+          || hostname.endsWith('googlevideo.com') || hostname.endsWith('ytimg.com')
+          || hostname.endsWith('ggpht.com');
+        if (!isYouTube || !isFirstParty(parsedUrl, initiator)) {
+          const lowerUrl = url.toLowerCase();
+          if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || BLOCKED_PATTERNS_REGEX.some(re => re.test(url))) {
+            console.log('[SHIELD] Blocked pattern:', 'URL:', url);
+            return callback({ cancel: true });
+          }
         }
       }
     } catch (e) {

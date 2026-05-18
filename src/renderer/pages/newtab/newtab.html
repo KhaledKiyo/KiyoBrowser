@@ -19,6 +19,17 @@
     <div class="clock unselectable" id="clock">00:00</div>
     <div class="greeting unselectable" id="greeting">Welcome back.</div>
 
+    <!-- Weather + Stats Widget -->
+    <div class="weather-container">
+      <div class="weather-widget" id="weather-widget" style="display: none;">
+        <i id="weather-icon" data-lucide="cloud"></i>
+        <span id="weather-city">Void</span>
+        <span class="temp" id="weather-temp">--°C</span>
+        <span id="weather-feels">Feels like --°</span>
+      </div>
+      <div class="browser-stats" id="browser-stats"></div>
+    </div>
+
     <div class="search-container">
       <div class="search-box">
         <i data-lucide="search"></i>
@@ -210,6 +221,120 @@
         if (val) window.electronAPI.navigate(val);
       }
     });
+
+    // ── Weather + Stats Widget ───────────────────────────────────────────────
+    const weatherCodes = {
+      113: 'sun',
+      116: 'cloud-sun',
+      119: 'cloud',
+      122: 'cloud',
+      143: 'cloud-drizzle',
+      248: 'cloud-drizzle',
+      260: 'cloud-drizzle',
+      176: 'cloud-rain',
+      263: 'cloud-rain',
+      266: 'cloud-rain',
+      293: 'cloud-rain',
+      296: 'cloud-rain',
+      299: 'cloud-rain',
+      302: 'cloud-rain',
+      305: 'cloud-rain',
+      308: 'cloud-rain',
+      353: 'cloud-rain',
+      356: 'cloud-rain',
+      359: 'cloud-rain',
+      179: 'snowflake',
+      182: 'snowflake',
+      185: 'snowflake',
+      227: 'snowflake',
+      230: 'snowflake',
+      281: 'snowflake',
+      284: 'snowflake',
+      311: 'snowflake',
+      314: 'snowflake',
+      317: 'snowflake',
+      320: 'snowflake',
+      323: 'snowflake',
+      326: 'snowflake',
+      329: 'snowflake',
+      332: 'snowflake',
+      335: 'snowflake',
+      338: 'snowflake',
+      350: 'snowflake',
+      362: 'snowflake',
+      365: 'snowflake',
+      368: 'snowflake',
+      371: 'snowflake',
+      395: 'snowflake',
+      386: 'cloud-lightning',
+      389: 'cloud-lightning',
+      392: 'cloud-lightning'
+    };
+
+    async function loadWeatherAndStats() {
+      // 1. Fetch & display stats
+      try {
+        const stats = await window.electronAPI.getBrowserStats();
+        if (stats) {
+          const statsEl = document.getElementById('browser-stats');
+          statsEl.textContent = `${stats.tabs} tabs open · ${stats.bookmarks} bookmarks · ${stats.history} history items`;
+        }
+      } catch (err) {
+        console.error('Failed to load browser stats:', err);
+      }
+
+      // 2. Fetch & display weather
+      try {
+        const cached = localStorage.getItem('kiyo_weather');
+        const expiry = localStorage.getItem('kiyo_weather_expiry');
+        let weatherData = null;
+
+        if (cached && expiry && Date.now() < Number(expiry)) {
+          weatherData = JSON.parse(cached);
+        } else {
+          const ipResponse = await fetch('https://ipapi.co/json/');
+          if (!ipResponse.ok) throw new Error('Location fetch failed');
+          const loc = await ipResponse.json();
+          const city = loc ? loc.city : 'London';
+
+          const weatherResponse = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+          if (!weatherResponse.ok) throw new Error('Weather fetch failed');
+          const wttr = await weatherResponse.json();
+          
+          if (wttr && wttr.current_condition && wttr.current_condition[0]) {
+            const cond = wttr.current_condition[0];
+            weatherData = {
+              city: city,
+              temp: cond.temp_C,
+              feelsLike: cond.FeelsLikeC,
+              code: cond.weatherCode
+            };
+            localStorage.setItem('kiyo_weather', JSON.stringify(weatherData));
+            localStorage.setItem('kiyo_weather_expiry', String(Date.now() + 30 * 60 * 1000));
+          }
+        }
+
+        if (weatherData) {
+          document.getElementById('weather-city').textContent = weatherData.city;
+          document.getElementById('weather-temp').textContent = `${weatherData.temp}°C`;
+          document.getElementById('weather-feels').textContent = `Feels like ${weatherData.feelsLike}°`;
+          
+          const iconName = weatherCodes[weatherData.code] || 'cloud';
+          const iconEl = document.getElementById('weather-icon');
+          iconEl.setAttribute('data-lucide', iconName);
+          
+          const widget = document.getElementById('weather-widget');
+          widget.style.display = 'inline-flex';
+          
+          lucide.createIcons({ nodes: [widget] });
+        }
+      } catch (err) {
+        console.warn('Weather load failed gracefully:', err);
+        document.getElementById('weather-widget').style.display = 'none';
+      }
+    }
+
+    loadWeatherAndStats();
   </script>
 </body>
 

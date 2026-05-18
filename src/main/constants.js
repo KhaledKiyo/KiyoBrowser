@@ -11,6 +11,10 @@ const PAGE_ALIASES = Object.freeze({
   DOWNLOADS: 'downloads',
   BOOKMARKS: 'bookmarks',
   HISTORY:   'history',
+  NOTE:      'note',
+  READER:    'reader',
+  PASSWORDS: 'passwords',
+  WELCOME:   'welcome',
 });
 
 const SEARCH_ENGINES = Object.freeze({
@@ -27,8 +31,8 @@ const TAB_STYLES = Object.freeze({
 
 const MAX_DOWNLOADS_HISTORY = 50;
 const MAX_TABS              = 20;
-const MAX_HISTORY_ENTRIES   = 500;
-const MAX_BOOKMARKS         = 200;
+const MAX_HISTORY_ENTRIES   = 1000;
+const MAX_BOOKMARKS         = 500;
 
 /** Collision-free tab ID using crypto UUID */
 function newTabId() { return randomUUID(); }

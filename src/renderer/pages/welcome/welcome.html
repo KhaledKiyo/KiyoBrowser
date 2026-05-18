@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Kiyo</title>
+  <link rel="stylesheet" href="welcome.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="mesh-bg"></div>
+
+  <div class="onboarding-container">
+    <!-- Progress Indicator -->
+    <div class="progress-bar">
+      <div class="progress-step active" id="p-step-1"></div>
+      <div class="progress-step" id="p-step-2"></div>
+      <div class="progress-step" id="p-step-3"></div>
+    </div>
+
+    <div class="onboarding-carousel">
+      <div class="steps-wrapper" id="steps-wrapper">
+        
+        <!-- STEP 1: Welcome -->
+        <div class="step-slide">
+          <div class="logo-container">
+            <div class="logo-pulse"></div>
+            <span class="logo-k">K</span>
+          </div>
+          <h1 class="welcome-title">Welcome to Kiyo</h1>
+          <p class="tagline">A browser that gets out of your way.</p>
+
+          <div class="features-grid">
+            <div class="feature-col">
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="zap"></i></div>
+                <div class="feature-text">
+                  <h3>Sleek Performance</h3>
+                  <p>Smart tab sleeping keeps RAM low and CPU clean.</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="shield"></i></div>
+                <div class="feature-text">
+                  <h3>Privacy Shield</h3>
+                  <p>Intercepts ads and tracking scripts at the request level.</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="edit"></i></div>
+                <div class="feature-text">
+                  <h3>Built-in Notes</h3>
+                  <p>Create, organize, and manage markdown notes right in Kiyo.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="feature-col">
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="key"></i></div>
+                <div class="feature-text">
+                  <h3>Key Vault</h3>
+                  <p>Secure, AES-256 encrypted local password management.</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="book-open"></i></div>
+                <div class="feature-text">
+                  <h3>Reader Mode</h3>
+                  <p>Distraction-free article reading with clean layouts.</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon"><i data-lucide="terminal"></i></div>
+                <div class="feature-text">
+                  <h3>Arch Aesthetic</h3>
+                  <p>A minimalist design built for keyboard-driven power users.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button class="nav-button next-btn" onclick="nextStep(1)">Get Started &rarr;</button>
+        </div>
+
+        <!-- STEP 2: Theme Select -->
+        <div class="step-slide">
+          <h2 class="welcome-title">Choose Your Theme</h2>
+          <p class="tagline">Pick an aesthetic that matches your desktop setup.</p>
+
+          <div class="cards-grid">
+            <!-- Default -->
+            <div class="card" id="theme-default" onclick="selectTheme('default')">
+              <div class="swatches">
+                <span class="swatch default-swatch-1"></span>
+                <span class="swatch default-swatch-2"></span>
+              </div>
+              <h3>Arch default</h3>
+              <p>Minimalist blue & charcoal</p>
+            </div>
+
+            <!-- Aurora -->
+            <div class="card" id="theme-aurora" onclick="selectTheme('aurora')">
+              <div class="swatches">
+                <span class="swatch aurora-swatch-1"></span>
+                <span class="swatch aurora-swatch-2"></span>
+              </div>
+              <h3>Aurora</h3>
+              <p>Vibrant emerald mint</p>
+            </div>
+
+            <!-- Zenith -->
+            <div class="card" id="theme-zenith" onclick="selectTheme('zenith')">
+              <div class="swatches">
+                <span class="swatch zenith-swatch-1"></span>
+                <span class="swatch zenith-swatch-2"></span>
+              </div>
+              <h3>Zenith</h3>
+              <p>Deep cybersecurity purple</p>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button class="nav-button prev-btn" onclick="prevStep(0)">&larr; Back</button>
+            <button class="nav-button next-btn" onclick="nextStep(2)">Continue &rarr;</button>
+          </div>
+        </div>
+
+        <!-- STEP 3: Search Engine -->
+        <div class="step-slide">
+          <h2 class="welcome-title">Set Your Search Engine</h2>
+          <p class="tagline">Configure your default query service for the void.</p>
+
+          <div class="cards-grid">
+            <!-- Google -->
+            <div class="card" id="se-google" onclick="selectSearchEngine('google')">
+              <img src="https://www.google.com/s2/favicons?sz=64&domain=google.com" alt="Google" class="engine-logo">
+              <h3>Google</h3>
+              <p>Standard global search results.</p>
+            </div>
+
+            <!-- DuckDuckGo -->
+            <div class="card" id="se-duckduckgo" onclick="selectSearchEngine('duckduckgo')">
+              <img src="https://www.google.com/s2/favicons?sz=64&domain=duckduckgo.com" alt="DuckDuckGo" class="engine-logo">
+              <h3>DuckDuckGo</h3>
+              <p>Private, tracker-free searches.</p>
+            </div>
+
+            <!-- Bing -->
+            <div class="card" id="se-bing" onclick="selectSearchEngine('bing')">
+              <img src="https://www.google.com/s2/favicons?sz=64&domain=bing.com" alt="Bing" class="engine-logo">
+              <h3>Bing</h3>
+              <p>AI-enhanced search index.</p>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button class="nav-button prev-btn" onclick="prevStep(1)">&larr; Back</button>
+            <button class="nav-button finish-btn" onclick="finishBrowsing()">Start Browsing &rarr;</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="../../shared/theme.js"></script>
+  <script>
+    let currentStepIndex = 0;
+    const stepsWrapper = document.getElementById('steps-wrapper');
+
+    function updateStepPosition() {
+      stepsWrapper.style.transform = `translateX(-${currentStepIndex * 33.333}%)`;
+      
+      // Update progress step indicators
+      for (let i = 1; i <= 3; i++) {
+        const stepEl = document.getElementById(`p-step-${i}`);
+        if (i - 1 <= currentStepIndex) {
+          stepEl.classList.add('active');
+        } else {
+          stepEl.classList.remove('active');
+        }
+      }
+    }
+
+    function nextStep(step) {
+      currentStepIndex = step;
+      updateStepPosition();
+    }
+
+    function prevStep(step) {
+      currentStepIndex = step;
+      updateStepPosition();
+    }
+
+    // Theme Selection
+    let selectedTheme = 'default';
+    async function selectTheme(themeId) {
+      selectedTheme = themeId;
+      document.querySelectorAll('[id^="theme-"]').forEach(el => el.classList.remove('selected'));
+      document.getElementById(`theme-${themeId}`).classList.add('selected');
+      
+      if (window.electronAPI) {
+        window.electronAPI.updateSetting('theme', themeId);
+      }
+    }
+
+    // Search Engine Selection
+    let selectedEngine = 'google';
+    async function selectSearchEngine(engineId) {
+      selectedEngine = engineId;
+      document.querySelectorAll('[id^="se-"]').forEach(el => el.classList.remove('selected'));
+      document.getElementById(`se-${engineId}`).classList.add('selected');
+      
+      if (window.electronAPI) {
+        window.electronAPI.updateSetting('searchEngine', engineId);
+      }
+    }
+
+    // Finish Onboarding
+    async function finishBrowsing() {
+      if (window.electronAPI) {
+        window.electronAPI.finishOnboarding();
+        window.electronAPI.navigate('home');
+      } else {
+        window.location.reload();
+      }
+    }
+
+    // Initialize with current settings or defaults
+    (async () => {
+      lucide.createIcons();
+      if (window.electronAPI) {
+        const s = await window.electronAPI.getSettings();
+        if (s) {
+          selectTheme(s.theme || 'default');
+          selectSearchEngine(s.searchEngine || 'google');
+        }
+      } else {
+        selectTheme('default');
+        selectSearchEngine('google');
+      }
+    })();
+  </script>
+</body>
+</html>

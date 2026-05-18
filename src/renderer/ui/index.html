@@ -29,6 +29,8 @@
         <button class="side-btn" id="note-btn" title="Kiyo Note"><i data-lucide="edit-3"></i></button>
         <button class="side-btn" id="bookmarks-btn" title="Bookmarks (Ctrl+B)"><i data-lucide="bookmark"></i></button>
         <button class="side-btn" id="history-btn" title="History (Ctrl+H)"><i data-lucide="clock"></i></button>
+        <button class="side-btn" id="passwords-btn" title="Passwords (Ctrl+Shift+P)"><i data-lucide="key"></i></button>
+        <button class="side-btn" id="groups-btn" title="Tab Groups"><i data-lucide="layers"></i></button>
         <button class="side-btn" id="downloads-toggle" title="Downloads (Ctrl+Shift+J)">
           <i data-lucide="download"></i>
           <span class="badge" id="download-badge" style="display: none;"></span>
@@ -55,6 +57,9 @@
         <button class="side-btn bookmark-star" id="bookmark-star-btn" title="Bookmark this page (Ctrl+D)">
           <i data-lucide="star"></i>
         </button>
+        <button class="side-btn reader-mode-btn" id="reader-mode-btn" title="Reader Mode (Ctrl+Shift+R)" style="display:none">
+          <i data-lucide="book-open"></i>
+        </button>
       </header>
       
       <!-- Find Bar -->
@@ -74,6 +79,39 @@
           <div class="spinner"></div>
         </div>
       </main>
+    </div>
+  </div>
+
+  <div id="groups-panel" class="groups-panel" style="display: none;">
+    <div class="groups-header">Tab Groups <button id="close-groups" class="close-btn"><i data-lucide="x"></i></button></div>
+    <div id="groups-list" class="groups-list"></div>
+    <div class="new-group-row">
+      <button id="new-group-btn" class="new-group-btn"><i data-lucide="plus"></i> New Group</button>
+    </div>
+  </div>
+
+  <div id="tab-search-overlay" class="tab-search-overlay" style="display: none;">
+    <div class="tab-search-box">
+      <i data-lucide="search"></i>
+      <input type="text" id="tab-search-input" placeholder="Search tabs and history...">
+    </div>
+    <div id="tab-search-results" class="tab-search-results"></div>
+  </div>
+
+  <div id="tab-tooltip" class="tab-tooltip" style="display:none">
+    <div class="tt-title"></div>
+    <div class="tt-url"></div>
+  </div>
+
+  <!-- Custom input dialog (replaces window.prompt which is disabled in Electron sandbox) -->
+  <div id="kiyo-dialog-overlay" style="display:none;position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:#13151f;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:28px 32px;min-width:320px;box-shadow:0 24px 64px rgba(0,0,0,0.7);font-family:Inter,sans-serif;">
+      <div id="kiyo-dialog-label" style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:14px;"></div>
+      <input id="kiyo-dialog-input" type="text" style="width:100%;box-sizing:border-box;background:#0d0e18;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px 14px;font-size:14px;color:#e6edf3;outline:none;font-family:inherit;" placeholder="">
+      <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+        <button id="kiyo-dialog-cancel" style="padding:8px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#8b949e;font-size:13px;cursor:pointer;font-family:inherit;">Cancel</button>
+        <button id="kiyo-dialog-ok" style="padding:8px 18px;border-radius:8px;border:none;background:var(--arch-blue,#58a6ff);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>
+      </div>
     </div>
   </div>
 

@@ -351,3 +351,19 @@ body.private-mode .mesh-bg {
   max-width: 300px;
   line-height: 1.5;
 }
+
+.weather-widget {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-color);
+  border-radius: 50px;
+  padding: 8px 18px;
+  margin-bottom: 30px;
+  font-size: 14px;
+  color: var(--text-dim);
+  backdrop-filter: blur(10px);
+}
+.weather-widget .temp { font-weight: 700; color: var(--text-main); }
+.browser-stats { font-size: 13px; color: var(--text-dim); margin-bottom: 24px; opacity: 0; animation: fadeIn 0.5s 0.5s ease forwards; }

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiyo Reader</title>
+  <link rel="stylesheet" href="reader.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="font-size-medium">
+  <div class="reader-wrapper">
+    <header class="reader-header">
+      <div class="header-left">
+        <button id="back-btn" class="header-btn" title="Go Back">
+          <i data-lucide="arrow-left"></i>
+          <span>Back</span>
+        </button>
+        <span class="source-domain" id="source-domain">loading...</span>
+      </div>
+
+      <div class="header-right">
+        <!-- Font size toggle -->
+        <div class="font-size-toggle" title="Adjust Font Size">
+          <button class="header-btn aa-btn" id="font-size-btn">
+            <span class="aa-icon">Aa</span>
+          </button>
+          <div class="font-size-menu" id="font-size-menu" style="display: none;">
+            <button class="menu-item" data-size="small">Small</button>
+            <button class="menu-item active" data-size="medium">Medium</button>
+            <button class="menu-item" data-size="large">Large</button>
+          </div>
+        </div>
+
+        <button id="original-btn" class="header-btn" title="Open Original URL">
+          <i data-lucide="external-link"></i>
+          <span>Open Original</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="reader-container">
+      <article class="reader-article">
+        <h1 class="article-title" id="article-title">Loading Article...</h1>
+        
+        <div class="article-meta">
+          <span class="article-byline" id="article-byline"></span>
+          <span class="read-time" id="read-time"></span>
+        </div>
+
+        <hr class="meta-separator">
+
+        <div class="article-content" id="article-content">
+          <div class="reader-loading">
+            <div class="spinner"></div>
+            <p>Extracting distraction-free view...</p>
+          </div>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="reader.js"></script>
+</body>
+</html>

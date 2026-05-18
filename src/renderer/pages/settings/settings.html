@@ -17,8 +17,10 @@
     <aside class="settings-sidebar">
       <h2>Settings</h2>
       <nav>
-        <button class="active" data-section="appearance"><i data-lucide="palette"></i> Appearance</button>
+        <button data-section="appearance"><i data-lucide="palette"></i> Appearance</button>
         <button data-section="general"><i data-lucide="settings"></i> General</button>
+        <button data-section="performance"><i data-lucide="zap"></i> Performance</button>
+        <button data-section="privacy"><i data-lucide="shield"></i> Privacy</button>
         <button data-section="shortcuts"><i data-lucide="keyboard"></i> Shortcuts</button>
         <button data-section="about"><i data-lucide="info"></i> About Kiyo</button>
       </nav>
@@ -96,6 +98,96 @@
         </div>
       </section>
 
+      <!-- Performance -->
+      <section id="performance" style="display: none;">
+        <h3>Performance</h3>
+        
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Tab Sleeping</span>
+            <span class="desc">Automatically suspend inactive tabs to save RAM.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="tab-sleep-enabled">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item" id="sleep-delay-setting">
+          <div class="info">
+            <span class="label">Sleep after</span>
+            <span class="desc">Time before an inactive tab is put to sleep.</span>
+          </div>
+          <div class="custom-select-wrapper" id="sleep-delay-wrapper">
+            <div class="custom-select-trigger" id="sleep-delay-trigger">
+              <span>30 minutes</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="sleep-delay-options">
+              <div class="custom-option" data-value="15">15 minutes</div>
+              <div class="custom-option" data-value="30">30 minutes</div>
+              <div class="custom-option" data-value="45">45 minutes</div>
+              <div class="custom-option" data-value="60">60 minutes</div>
+              <div class="custom-option" data-value="120">120 minutes</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Memory Stats</span>
+            <span id="tab-sleep-stats" class="desc">Loading stats...</span>
+          </div>
+          <button class="action-btn" id="sleep-all-btn">Sleep All Background Tabs</button>
+        </div>
+      </section>
+
+      <!-- Privacy -->
+      <section id="privacy" style="display: none;">
+        <h3>Privacy Shield</h3>
+
+        <div class="stats-card">
+          <div class="stats-info">
+            <span class="stats-number" id="blocked-count">0</span>
+            <span class="stats-label">Requests Blocked Today</span>
+          </div>
+          <button class="btn-reset" id="reset-stats-btn"><i data-lucide="refresh-cw"></i> Reset Stats</button>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Ad & Tracker Blocking</span>
+            <span class="desc">Block ads, trackers, and malicious scripts using EasyList filters.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="adblock-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Block Hyperlink Auditing</span>
+            <span class="desc">Prevent websites from tracking clicks using ping attributes or sendBeacon.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="hyperlink-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Strict HTTPS</span>
+            <span class="desc">Automatically upgrade HTTP connections to secure HTTPS.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="https-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
       <!-- Shortcuts -->
       <section id="shortcuts" style="display: none;">
         <h3>Keyboard Shortcuts</h3>
@@ -117,7 +209,7 @@
             <td><kbd>Ctrl+R</kbd></td>
           </tr>
           <tr>
-            <td>Hard reload</td>
+            <td>Reader Mode</td>
             <td><kbd>Ctrl+Shift+R</kbd></td>
           </tr>
           <tr>
@@ -195,7 +287,9 @@
           optionItems.forEach(o => o.classList.remove('selected'));
           item.classList.add('selected');
           trigger.querySelector('span').textContent = item.textContent;
-          window.electronAPI.updateSetting(settingKey, item.dataset.value);
+          let val = item.dataset.value;
+          if (settingKey === 'tabSleepDelay') val = parseInt(val);
+          window.electronAPI.updateSetting(settingKey, val);
           closeAllDropdowns();
         };
       });
@@ -212,6 +306,53 @@
     setupCustomSelect('theme-wrapper', 'theme');
     setupCustomSelect('tab-style-wrapper', 'tabStyle');
     setupCustomSelect('search-engine-wrapper', 'searchEngine');
+    setupCustomSelect('sleep-delay-wrapper', 'tabSleepDelay');
+
+    document.getElementById('tab-sleep-enabled').onchange = e => {
+      window.electronAPI.updateSetting('tabSleepEnabled', e.target.checked);
+      document.getElementById('sleep-delay-setting').style.display = e.target.checked ? 'flex' : 'none';
+    };
+
+    document.getElementById('sleep-all-btn').onclick = () => {
+      window.electronAPI.sleepAllTabs();
+      setTimeout(updateSleepStats, 500);
+    };
+
+    async function updateSleepStats() {
+      try {
+        const stats = await window.electronAPI.getSleepStats();
+        document.getElementById('tab-sleep-stats').textContent = `${stats.sleeping} tabs sleeping · ${stats.active} tabs active`;
+      } catch (e) {
+        console.warn('[kiyo] failed to get sleep stats', e);
+      }
+    }
+
+    document.getElementById('adblock-toggle').onchange = e => {
+      window.electronAPI.updateSetting('adblockEnabled', e.target.checked);
+      window.electronAPI.toggleAdblock(e.target.checked);
+    };
+
+    document.getElementById('hyperlink-toggle').onchange = e => {
+      window.electronAPI.updateSetting('blockHyperlinkAuditing', e.target.checked);
+    };
+
+    document.getElementById('https-toggle').onchange = e => {
+      window.electronAPI.updateSetting('strictHttps', e.target.checked);
+    };
+
+    async function updateAdblockStats() {
+      try {
+        const stats = await window.electronAPI.getAdblockStats();
+        document.getElementById('blocked-count').textContent = stats.blocked || 0;
+      } catch (e) {
+        console.warn('[kiyo] failed to get adblock stats', e);
+      }
+    }
+
+    document.getElementById('reset-stats-btn').onclick = () => {
+      window.electronAPI.resetAdblockStats();
+      setTimeout(updateAdblockStats, 100);
+    };
 
     function applySettingsToUI(s, fromExternalBroadcast = false) {
       // Don't reset dropdowns while the user is actively interacting with one
@@ -222,6 +363,20 @@
       if (s.tabStyle) syncDropdown('tab-style-options', 'tab-style-trigger', s.tabStyle);
       if (s.searchEngine) syncDropdown('search-engine-options', 'search-engine-trigger', s.searchEngine);
       if (s.blurIntensity !== undefined) document.getElementById('blur-range').value = s.blurIntensity;
+      if (s.tabSleepEnabled !== undefined) {
+        document.getElementById('tab-sleep-enabled').checked = s.tabSleepEnabled;
+        document.getElementById('sleep-delay-setting').style.display = s.tabSleepEnabled ? 'flex' : 'none';
+      }
+      if (s.tabSleepDelay !== undefined) syncDropdown('sleep-delay-options', 'sleep-delay-trigger', s.tabSleepDelay);
+      if (s.adblockEnabled !== undefined) {
+        document.getElementById('adblock-toggle').checked = s.adblockEnabled;
+      }
+      if (s.blockHyperlinkAuditing !== undefined) {
+        document.getElementById('hyperlink-toggle').checked = s.blockHyperlinkAuditing;
+      }
+      if (s.strictHttps !== undefined) {
+        document.getElementById('https-toggle').checked = s.strictHttps;
+      }
     }
 
     function syncDropdown(optionsId, triggerId, value) {
@@ -234,6 +389,9 @@
 
     window.electronAPI.getSettings().then(async s => {
       applySettingsToUI(s, false);
+      updateSleepStats();
+      updateAdblockStats();
+      setInterval(updateAdblockStats, 2000);
       // Bug #9: populate theme dropdown dynamically from available theme files
       try {
         const themes = await window.electronAPI.getAvailableThemes();
@@ -284,6 +442,8 @@
         document.querySelectorAll('.settings-main section').forEach(s => {
           s.style.display = s.id === sec ? 'block' : 'none';
         });
+        if (sec === 'performance') updateSleepStats();
+        if (sec === 'privacy') updateAdblockStats();
       };
     });
   </script>

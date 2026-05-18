@@ -1,3 +1,57 @@
+/**
+ * ============================================================
+ * Kiyo Browser — main.js  (Final Integration Pass)
+ * ============================================================
+ * Features integrated in this file:
+ *
+ *  • Core browser shell: multi-window, WebContentsView tabs,
+ *    session persistence, lazy-tab loading.
+ *
+ *  • Tab Groups (IPC: show-tab-menu → tab-menu-action)
+ *    Groups are serialised into the session JSON alongside tabs.
+ *
+ *  • Tab Sleeping (IPC: sleep-tab-now, wake-tab, sleep-all-tabs,
+ *    get-sleep-stats). Configurable via tabSleepEnabled /
+ *    tabSleepDelay settings.  Sleeping removes the WebContentsView
+ *    from memory; waking recreates it.
+ *
+ *  • Ad-blocker & Privacy Shield (lib/adblock, lib/privacy).
+ *    Controlled via adblockEnabled / blockHyperlinkAuditing /
+ *    strictHttps settings.  IPC: get-adblock-stats,
+ *    toggle-adblock, reset-adblock-stats.
+ *
+ *  • Reader Mode (lib/readability).  IPC: extract-article,
+ *    check-reader-mode.  Shortcut: Ctrl+Shift+R → toggle-reader.
+ *
+ *  • Encrypted Password Manager (lib/passwords).  IPC: pw-is-setup,
+ *    pw-is-unlocked, pw-setup, pw-unlock, pw-lock, pw-save, pw-get,
+ *    pw-get-all, pw-delete, pw-search, pw-captured, pw-save-pending,
+ *    pw-discard-pending.  Auto-fill injected on did-finish-load.
+ *
+ *  • Keyboard shortcuts handled via before-input-event interception
+ *    (no globalShortcut to avoid conflicts with other apps):
+ *      Ctrl+T  → new-tab
+ *      Ctrl+W  → close-tab
+ *      Ctrl+L  → focus-url
+ *      Ctrl+R  → reload  (Ctrl+Shift+R → toggle-reader)
+ *      Ctrl+F  → open-find
+ *      Ctrl+=  → zoom-in   Ctrl+-  → zoom-out  Ctrl+0 → zoom-reset
+ *      Ctrl+Shift+K → tab-search
+ *      Ctrl+Shift+P → open-passwords
+ *      Ctrl+Shift+N → open-private-window
+ *
+ *  • IPC handlers verified deduplicated (no duplicate ipcMain.handle
+ *    registrations).  remove-history-entry handler added (was exposed
+ *    in preload but missing in main).
+ *
+ *  • PAGE object contains: home, settings, downloads, bookmarks,
+ *    history, note, error, welcome, reader, passwords.
+ *
+ *  • SETTINGS_DEFAULTS & SETTING_SCHEMA include: theme, blurIntensity,
+ *    tabStyle, searchEngine, adblockEnabled, blockHyperlinkAuditing,
+ *    strictHttps, tabSleepEnabled, tabSleepDelay, geometry.
+ * ============================================================
+ */
 const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -6,9 +60,13 @@ const fs = require('fs');
 const { PrivateSessionManager } = require('./lib/session');
 const { setupPrivacyShield, bindCosmeticFilters } = require('./lib/privacy');
 const { readJSON, writeJSON } = require('./lib/utils');
+const adblock = require('./adblock');
+const { extractArticle, isArticlePage } = require('./readability');
+const PasswordManager = require('./passwords');
 
 // ─── App config ───────────────────────────────────────────────────────────────
 const USER_DATA = app.getPath('userData');
+const pwManager = new PasswordManager(USER_DATA);
 const SETTINGS_PATH = path.join(USER_DATA, 'kiyo-settings.json');
 const BOOKMARKS_PATH = path.join(USER_DATA, 'kiyo-bookmarks.json');
 const HISTORY_PATH = path.join(USER_DATA, 'kiyo-history.json');
@@ -32,6 +90,9 @@ const PAGE = {
   history: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'history', 'history.html'),
   note: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'note', 'note.html'),
   error: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'error', 'error.html'),
+  welcome: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'welcome', 'welcome.html'),
+  reader: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'reader', 'reader.html'),
+  passwords: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'passwords', 'passwords.html'),
 };
 
 function normaliseFileUrl(u) {
@@ -45,6 +106,11 @@ function normaliseFileUrl(u) {
 const windows = new Map(); // win.webContents.id -> winState
 const viewToWindow = new Map(); // view.webContents.id -> winState
 const downloads = [];
+const pendingCredentials = new Map(); // wc.id -> { domain, username, password }
+
+const tabSleepTimers = new Map(); // tabId → setTimeout handle
+const sleepedTabs = new Map();    // tabId → { url, title, favicon } (sleeping tabs have no view)
+const TAB_SLEEP_DELAY = 30 * 60 * 1000; // 30 minutes default, configurable
 
 const SETTINGS_DEFAULTS = {
   theme: 'default',
@@ -52,6 +118,11 @@ const SETTINGS_DEFAULTS = {
   tabStyle: 'squircle',
   searchEngine: 'google',
   geometry: { sidebarWidth: 72, headerHeight: 60 },
+  tabSleepEnabled: true,
+  tabSleepDelay: 30,
+  adblockEnabled: true,
+  blockHyperlinkAuditing: true,
+  strictHttps: false,
 };
 
 const SETTING_SCHEMA = {
@@ -60,6 +131,11 @@ const SETTING_SCHEMA = {
   tabStyle: v => ['squircle', 'square', 'circle'].includes(v),
   searchEngine: v => ['google', 'bing', 'duckduckgo'].includes(v),
   geometry: v => v && typeof v.sidebarWidth === 'number' && typeof v.headerHeight === 'number',
+  tabSleepEnabled: v => typeof v === 'boolean',
+  tabSleepDelay: v => typeof v === 'number' && v >= 1 && v <= 120,
+  adblockEnabled: v => typeof v === 'boolean',
+  blockHyperlinkAuditing: v => typeof v === 'boolean',
+  strictHttps: v => typeof v === 'boolean',
 };
 
 let settings = { ...SETTINGS_DEFAULTS };
@@ -106,7 +182,12 @@ function resolveUrl(raw) {
     return allowed.includes(normaliseFileUrl(t)) ? t : null;
   }
 
-  if (/^https?:\/\//i.test(t)) return t;
+  if (/^https?:\/\//i.test(t)) {
+    if (settings.strictHttps && t.toLowerCase().startsWith('http://')) {
+      return 'https://' + t.slice(7);
+    }
+    return t;
+  }
 
   if (!t.includes(' ') && /\./.test(t)) return 'https://' + t;
 
@@ -161,6 +242,7 @@ function createWindow(isPrivate = false, restoredSession = null) {
 
   // Apply Ad Blocker to this window's session
   setupPrivacyShield(win.webContents.session);
+  setupAdblock(win.webContents.session);
   bindCosmeticFilters(win.webContents);
 
   // Ensure spellchecker is enabled for the session (especially for private partitions)
@@ -284,11 +366,35 @@ ipcMain.handle('renderer-ready', (event) => {
     settings,
     maxTabs: MAX_TABS,
     session: sessionData,
-    isPrivate: winState.isPrivate
+    isPrivate: winState.isPrivate,
+    firstRun: !fs.existsSync(path.join(USER_DATA, 'kiyo-onboarded.json'))
   };
 });
 
 ipcMain.handle('get-settings', () => settings);
+
+ipcMain.handle('get-adblock-stats', () => adblock.getStats());
+ipcMain.on('toggle-adblock', (_, enabled) => {
+  settings.adblockEnabled = enabled;
+  saveSettings();
+});
+ipcMain.on('reset-adblock-stats', () => adblock.resetStats());
+
+ipcMain.handle('get-browser-stats', () => {
+  let totalTabs = 0;
+  for (const winState of windows.values()) {
+    totalTabs += winState.views.size;
+  }
+  return {
+    tabs: totalTabs,
+    bookmarks: bookmarks.length,
+    history: history.length
+  };
+});
+
+ipcMain.on('finish-onboarding', () => {
+  writeJSON(path.join(USER_DATA, 'kiyo-onboarded.json'), { onboarded: true, date: Date.now() });
+});
 
 ipcMain.on('update-setting', async (event, key, value) => {
   if (!SETTING_SCHEMA[key] || !SETTING_SCHEMA[key](value)) return;
@@ -327,6 +433,32 @@ ipcMain.on('clear-downloads', () => {
   broadcast('downloads-cleared');
 });
 
+ipcMain.handle('get-sleep-stats', () => {
+  let activeCount = 0;
+  for (const winState of windows.values()) {
+    activeCount += winState.views.size;
+  }
+  return { sleeping: sleepedTabs.size, active: activeCount };
+});
+
+ipcMain.on('wake-tab', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (winState) wakeTab(winState, id);
+});
+
+ipcMain.on('sleep-tab-now', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (winState) sleepTab(winState, id);
+});
+
+ipcMain.on('sleep-all-tabs', (event) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  for (const id of winState.views.keys()) {
+    if (id !== winState.activeViewId) sleepTab(winState, id);
+  }
+});
+
 ipcMain.handle('get-bookmarks', () => bookmarks);
 ipcMain.on('add-bookmark', (_, bookmark) => {
   if (!bookmark || typeof bookmark.url !== 'string') return;
@@ -351,6 +483,14 @@ ipcMain.on('clear-history', () => {
   history = [];
   saveHistory();
   broadcast('history-updated');
+});
+ipcMain.on('remove-history-entry', (_, url) => {
+  const before = history.length;
+  history = history.filter(h => h.url !== url);
+  if (history.length !== before) {
+    saveHistory();
+    broadcast('history-updated');
+  }
 });
 
 ipcMain.handle('get-available-themes', () => {
@@ -405,8 +545,25 @@ ipcMain.on('open-private-window', () => {
   createWindow(true);
 });
 
-ipcMain.on('show-tab-menu', (event, id) => {
+ipcMain.on('show-tab-menu', (event, id, currentGroupId, groupsList) => {
   const winState = getWinState(event.sender);
+  const isSleeping = sleepedTabs.has(id);
+  const isActive = winState?.activeViewId === id;
+
+  const addGroupSubmenu = [
+    { label: 'New Group...', click: () => winState?.window.webContents.send('tab-menu-action', id, 'new-group') }
+  ];
+
+  if (groupsList && groupsList.length > 0) {
+    addGroupSubmenu.push({ type: 'separator' });
+    groupsList.forEach(g => {
+      addGroupSubmenu.push({
+        label: g.name,
+        click: () => winState?.window.webContents.send('tab-menu-action', id, 'add-to-group', g.id)
+      });
+    });
+  }
+
   const template = [
     { label: 'Duplicate Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'duplicate') },
     { label: 'Reload Tab', click: () => {
@@ -414,9 +571,25 @@ ipcMain.on('show-tab-menu', (event, id) => {
         if (v) v.webContents.reload();
       }
     },
-    { type: 'separator' },
-    { label: 'Close Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'close') }
+    { type: 'separator' }
   ];
+
+  if (isSleeping) {
+    template.push({ label: 'Wake Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'wake') });
+  } else if (!isActive) {
+    template.push({ label: 'Sleep Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'sleep') });
+  }
+
+  template.push({ type: 'separator' });
+  template.push({ label: 'Add to Group', submenu: addGroupSubmenu });
+
+  if (currentGroupId) {
+    template.push({ label: 'Remove from Group', click: () => winState?.window.webContents.send('tab-menu-action', id, 'remove-from-group') });
+  }
+
+  template.push({ type: 'separator' });
+  template.push({ label: 'Close Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'close') });
+
   const menu = Menu.buildFromTemplate(template);
   menu.popup(BrowserWindow.fromWebContents(event.sender));
 });
@@ -569,6 +742,75 @@ ipcMain.handle('get-autocomplete', async (_, text) => {
   return results.slice(0, 10);
 });
 
+ipcMain.handle('extract-article', async (_, tabId) => {
+  for (const winState of windows.values()) {
+    const view = winState.views.get(tabId);
+    if (view) {
+      const url = view.webContents.getURL();
+      try {
+        const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML');
+        const article = await extractArticle(html, url);
+        return { ...article, url, isArticle: isArticlePage(html) };
+      } catch (e) {
+        console.error('[kiyo] extract-article error:', e.message);
+        return null;
+      }
+    }
+  }
+  return null;
+});
+
+ipcMain.handle('check-reader-mode', async (_, tabId) => {
+  for (const winState of windows.values()) {
+    const view = winState.views.get(tabId);
+    if (view) {
+      try {
+        const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML');
+        return isArticlePage(html);
+      } catch (e) {
+        return false;
+      }
+    }
+  }
+  return false;
+});
+
+ipcMain.handle('pw-is-setup', () => pwManager.isSetup());
+ipcMain.handle('pw-is-unlocked', () => pwManager.isUnlocked());
+ipcMain.handle('pw-setup', (_, pass) => pwManager.setMasterPassword(pass));
+ipcMain.handle('pw-unlock', (_, pass) => pwManager.unlock(pass));
+ipcMain.on('pw-lock', () => pwManager.lock());
+ipcMain.handle('pw-save', (_, domain, username, password) => pwManager.save(domain, username, password));
+ipcMain.handle('pw-get', (_, domain) => pwManager.get(domain));
+ipcMain.handle('pw-get-all', () => pwManager.getAll());
+ipcMain.handle('pw-delete', (_, domain, username) => pwManager.delete(domain, username));
+ipcMain.handle('pw-search', (_, q) => pwManager.search(q));
+
+ipcMain.on('pw-captured', (event, domain, username, password) => {
+  pendingCredentials.set(event.sender.id, { domain, username, password });
+});
+
+ipcMain.handle('pw-save-pending', (event, tabId) => {
+  const winState = getWinState(event.sender);
+  const view = winState?.views.get(tabId);
+  if (!view) return false;
+  const pending = pendingCredentials.get(view.webContents.id);
+  if (pending && pwManager.isUnlocked()) {
+    pwManager.save(pending.domain, pending.username, pending.password);
+    pendingCredentials.delete(view.webContents.id);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.on('pw-discard-pending', (event, tabId) => {
+  const winState = getWinState(event.sender);
+  const view = winState?.views.get(tabId);
+  if (view) {
+    pendingCredentials.delete(view.webContents.id);
+  }
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function broadcast(channel, ...args) {
   for (const winState of windows.values()) {
@@ -680,10 +922,48 @@ function createView(winState, id, url, lazy = false) {
     menu.popup({ window: winState.window });
   });
 
-  view.webContents.on('did-navigate', (_, u) => {
+  view.webContents.on('did-navigate', async (_, u) => {
     const uiUrl = getUIUrl(u);
     winState.window.webContents.send('url-changed', id, uiUrl);
     if (winState.activeViewId === id) pushHistory(u, '', winState.isPrivate);
+
+    // Only prompt to save if credentials were actually captured from a form
+    // submission on this tab. Without this guard the dialog fires on every
+    // navigation, even when no password was ever entered.
+    if (!pendingCredentials.has(view.webContents.id)) return;
+    let domain;
+    try { domain = new URL(u).hostname; } catch { return; }
+    winState.window.webContents.send('pw-check-save-prompt', id, domain);
+  });
+
+  view.webContents.on('did-finish-load', async () => {
+    const url = view.webContents.getURL();
+    let domain;
+    try { domain = new URL(url).hostname; } catch { return; }
+    if (!pwManager.isUnlocked()) return;
+    const creds = await pwManager.get(domain);
+    if (!creds.length) return;
+    // Inject autofill helper
+    view.webContents.executeJavaScript(`
+      (function() {
+        const creds = ${JSON.stringify(creds)};
+        const pwField = document.querySelector('input[type="password"]');
+        const userField = pwField && (
+          document.querySelector('input[type="email"]') ||
+          document.querySelector('input[type="text"][autocomplete*="user"]') ||
+          document.querySelector('input[name*="user"], input[name*="email"], input[id*="user"], input[id*="email"]')
+        );
+        if (pwField && creds[0]) {
+          pwField.value = creds[0].password;
+          if (userField) userField.value = creds[0].username;
+          // Dispatch input events so React/Vue forms detect the fill
+          [pwField, userField].filter(Boolean).forEach(el => {
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        }
+      })();
+    `);
   });
 
   view.webContents.on('did-navigate-in-page', (_, u, isMainFrame) => {
@@ -722,7 +1002,55 @@ function createView(winState, id, url, lazy = false) {
   }
 }
 
+function scheduleTabSleep(winState, id) {
+  if (tabSleepTimers.has(id)) {
+    clearTimeout(tabSleepTimers.get(id));
+    tabSleepTimers.delete(id);
+  }
+  if (!settings.tabSleepEnabled || id === winState.activeViewId) return;
+
+  const timer = setTimeout(() => {
+    sleepTab(winState, id);
+  }, settings.tabSleepDelay * 60 * 1000);
+  tabSleepTimers.set(id, timer);
+}
+
+function sleepTab(winState, id) {
+  if (id === winState.activeViewId) return;
+  const view = winState.views.get(id);
+  if (!view) return;
+
+  sleepedTabs.set(id, {
+    url: view.webContents.getURL() || view.pendingUrl,
+    title: view.webContents.getTitle(),
+    favicon: null
+  });
+
+  try { winState.window.contentView.removeChildView(view); } catch(e) {}
+  viewToWindow.delete(view.webContents.id);
+  view.webContents.destroy();
+  winState.views.delete(id);
+
+  winState.window.webContents.send('tab-slept', id);
+  console.log('[kiyo] Tab slept:', id);
+}
+
+function wakeTab(winState, id) {
+  const data = sleepedTabs.get(id);
+  if (!data) return;
+  sleepedTabs.delete(id);
+  createView(winState, id, data.url);
+  winState.window.webContents.send('tab-woke', id, data.url);
+}
+
 function switchView(winState, id) {
+  if (sleepedTabs.has(id)) {
+    wakeTab(winState, id);
+    return;
+  }
+
+  const prevId = winState.activeViewId;
+
   if (winState.activeViewId && winState.views.has(winState.activeViewId)) {
     winState.window.contentView.removeChildView(winState.views.get(winState.activeViewId));
   }
@@ -737,9 +1065,24 @@ function switchView(winState, id) {
     updateActiveViewBounds(winState);
     winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
   }
+
+  if (prevId && prevId !== id && winState.views.has(prevId)) {
+    scheduleTabSleep(winState, prevId);
+  }
+
+  if (tabSleepTimers.has(id)) {
+    clearTimeout(tabSleepTimers.get(id));
+    tabSleepTimers.delete(id);
+  }
 }
 
 function closeView(winState, id) {
+  if (tabSleepTimers.has(id)) {
+    clearTimeout(tabSleepTimers.get(id));
+    tabSleepTimers.delete(id);
+  }
+  sleepedTabs.delete(id);
+
   const v = winState.views.get(id);
   if (!v) return;
   if (winState.activeViewId === id) {
@@ -765,11 +1108,42 @@ function updateActiveViewBounds(winState) {
   });
 }
 
+function setupAdblock(sess) {
+  sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    const url = details.url;
+    if (url.startsWith('kiyo://') || url.startsWith('file://')) {
+      return callback({ cancel: false });
+    }
+
+    if (settings.blockHyperlinkAuditing && details.resourceType === 'ping') {
+      adblock.incrementStats();
+      return callback({ cancel: true });
+    }
+
+    if (settings.adblockEnabled && adblock.shouldBlock(url, details.resourceType)) {
+      adblock.incrementStats();
+      return callback({ cancel: true });
+    }
+
+    try {
+      const { isDomainBlocked } = require('./lib/privacy');
+      const hostname = new URL(url).hostname;
+      if (settings.adblockEnabled && isDomainBlocked(hostname)) {
+        adblock.incrementStats();
+        return callback({ cancel: true });
+      }
+    } catch (e) {}
+
+    callback({ cancel: false });
+  });
+}
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   loadSettings();
   loadBookmarks();
   loadHistory();
+  adblock.initAdblock();
 
   const defaultUA = session.defaultSession.getUserAgent();
   const cleanUA = defaultUA.replace(/kiyo\/[0-9\.-]+\s?/, '').replace(/Electron\/[0-9\.-]+\s?/, '');
@@ -779,6 +1153,7 @@ app.whenReady().then(() => {
 
   // Apply Shield to default session too
   setupPrivacyShield(session.defaultSession);
+  setupAdblock(session.defaultSession);
 
   // Enable Spellchecker globally
   session.defaultSession.setSpellCheckerEnabled(true);
@@ -793,9 +1168,10 @@ app.whenReady().then(() => {
     'r': (win, e) => {
       const winState = windows.get(win.webContents.id);
       const v = winState?.views.get(winState.activeViewId);
-      if (v) {
-        if (e && e.shift) v.webContents.reloadIgnoringCache();
-        else v.webContents.reload();
+      if (e && e.shift) {
+        win.webContents.send('shortcut', 'toggle-reader');
+      } else {
+        if (v) v.webContents.reload();
       }
     },
     'f': (win) => win.webContents.send('shortcut', 'open-find'),
@@ -810,6 +1186,8 @@ app.whenReady().then(() => {
     '=': (win) => win.webContents.send('shortcut', 'zoom-in'),
     '-': (win) => win.webContents.send('shortcut', 'zoom-out'),
     '0': (win) => win.webContents.send('shortcut', 'zoom-reset'),
+    'k': (win, e) => { if (e.shift) win.webContents.send('shortcut', 'tab-search'); },
+    'p': (win, e) => { if (e.shift) win.webContents.send('shortcut', 'open-passwords'); },
   };
 
   app.on('web-contents-created', (_, wc) => {

@@ -11,13 +11,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Bootstrap (replaces fragile setTimeout race) ───────────────────────────
   rendererReady: () => ipcRenderer.invoke('renderer-ready'),
+  getBrowserStats: () => ipcRenderer.invoke('get-browser-stats'),
+  finishOnboarding: () => ipcRenderer.send('finish-onboarding'),
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   createTab: (id, url, lazy) => ipcRenderer.send('create-tab', id, url, lazy),
   switchTab: (id) => ipcRenderer.send('switch-tab', id),
   closeTab: (id) => ipcRenderer.send('close-tab', id),
   duplicateTab: (id) => ipcRenderer.send('duplicate-tab', id),
-  showTabMenu: (id) => ipcRenderer.send('show-tab-menu', id),
+  showTabMenu: (id, currentGroupId, groupsList) => ipcRenderer.send('show-tab-menu', id, currentGroupId, groupsList),
 
   // ── Navigation ────────────────────────────────────────────────────────────
   navigate: (url) => ipcRenderer.send('navigate', url),
@@ -35,7 +37,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onLoadingStatus: (cb) => on('loading-status', (_, id, loading) => cb(id, loading)),
   onTabDuplicated: (cb) => on('tab-duplicated', (_, id, url) => cb(id, url)),
   onTabLimitReached: (cb) => on('tab-limit-reached', () => cb()),
-  onTabMenuAction: (cb) => on('tab-menu-action', (_, id, action) => cb(id, action)),
+  onTabMenuAction: (cb) => on('tab-menu-action', (_, id, action, payload) => cb(id, action, payload)),
+  onTabSlept: (cb) => on('tab-slept', (_, id) => cb(id)),
+  onTabWoke: (cb) => on('tab-woke', (_, id, url) => cb(id, url)),
+  getSleepStats: () => ipcRenderer.invoke('get-sleep-stats'),
+  wakeTab: (id) => ipcRenderer.send('wake-tab', id),
+  sleepTabNow: (id) => ipcRenderer.send('sleep-tab-now', id),
+  sleepAllTabs: () => ipcRenderer.send('sleep-all-tabs'),
 
   // ── Downloads ─────────────────────────────────────────────────────────────
   onDownloadsUpdated: (cb) => on('downloads-updated', (_, downloads) => cb(downloads)),
@@ -50,6 +58,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateSetting: (k, v) => ipcRenderer.send('update-setting', k, v),
   onThemeUpdated: (cb) => on('theme-updated', (_, s) => cb(s)),
   getAvailableThemes: () => ipcRenderer.invoke('get-available-themes'),
+  getAdblockStats: () => ipcRenderer.invoke('get-adblock-stats'),
+  toggleAdblock: (enabled) => ipcRenderer.send('toggle-adblock', enabled),
+  resetAdblockStats: () => ipcRenderer.send('reset-adblock-stats'),
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────
   getBookmarks: () => ipcRenderer.invoke('get-bookmarks'),
@@ -91,4 +102,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
   getAutocomplete: (text) => ipcRenderer.invoke('get-autocomplete', text),
+
+  // ── Passwords ──────────────────────────────────────────────────────────────
+  pwIsSetup: () => ipcRenderer.invoke('pw-is-setup'),
+  pwIsUnlocked: () => ipcRenderer.invoke('pw-is-unlocked'),
+  pwSetup: (pass) => ipcRenderer.invoke('pw-setup', pass),
+  pwUnlock: (pass) => ipcRenderer.invoke('pw-unlock', pass),
+  pwLock: () => ipcRenderer.send('pw-lock'),
+  pwSave: (domain, username, password) => ipcRenderer.invoke('pw-save', domain, username, password),
+  pwGet: (domain) => ipcRenderer.invoke('pw-get', domain),
+  pwGetAll: () => ipcRenderer.invoke('pw-get-all'),
+  pwDelete: (domain, username) => ipcRenderer.invoke('pw-delete', domain, username),
+  pwSearch: (q) => ipcRenderer.invoke('pw-search', q),
+  onPwCheckSavePrompt: (cb) => on('pw-check-save-prompt', (_, tabId, domain) => cb(tabId, domain)),
+  pwSavePending: (tabId) => ipcRenderer.invoke('pw-save-pending', tabId),
+  pwDiscardPending: (tabId) => ipcRenderer.send('pw-discard-pending', tabId),
+
+  // ── Reader Mode ───────────────────────────────────────────────────────────
+  extractArticle: (tabId) => ipcRenderer.invoke('extract-article', tabId),
+  checkReaderMode: (tabId) => ipcRenderer.invoke('check-reader-mode', tabId),
 });
+
+// Submit listener to capture passwords
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('submit', (e) => {
+      const form = e.target;
+      const pwField = form.querySelector('input[type="password"]');
+      const userField = pwField && (
+        form.querySelector('input[type="email"]') ||
+        form.querySelector('input[type="text"][autocomplete*="user"]') ||
+        form.querySelector('input[name*="user"], input[name*="email"], input[id*="user"], input[id*="email"]')
+      );
+      if (pwField && pwField.value) {
+        const username = userField ? userField.value : '';
+        const password = pwField.value;
+        ipcRenderer.send('pw-captured', window.location.hostname, username, password);
+      }
+    });
+  });
+}
