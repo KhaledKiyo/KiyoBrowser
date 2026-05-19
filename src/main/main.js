@@ -266,7 +266,7 @@ function softwareGoForward(winState, tabId) {
 function broadcastNavState(winState, tabId) {
   if (!winState || !winState.window || winState.window.isDestroyed()) return;
   const v = winState.views.get(tabId);
-  if (!v) return;
+  if (!v || !v.webContents || v.webContents.isDestroyed()) return;
   
   const webCanBack = v.webContents.canGoBack();
   const webCanForward = v.webContents.canGoForward();
@@ -278,7 +278,7 @@ function broadcastNavState(winState, tabId) {
   const canBack = webCanBack || softCanBack;
   const canForward = webCanForward || softCanForward;
   
-  winState.window.webContents.send('nav-state', tabId, canBack, canForward);
+  safeSend(winState.window, 'nav-state', tabId, canBack, canForward);
 }
 
 
@@ -1119,13 +1119,37 @@ ipcMain.handle('get-tab-preview', async (_, tabId) => {
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function safeSend(target, channel, ...args) {
+  if (!target) return;
+  try {
+    let wc = null;
+    if (typeof target.webContents !== 'undefined') {
+      if (target.isDestroyed && target.isDestroyed()) return;
+      wc = target.webContents;
+    } else {
+      wc = target;
+    }
+    if (wc && !wc.isDestroyed()) {
+      wc.send(channel, ...args);
+    }
+  } catch (e) {
+    console.warn(`[kiyo-ipc] safeSend failed for channel ${channel}:`, e.message);
+  }
+}
+
 function broadcast(channel, ...args) {
   for (const winState of windows.values()) {
-    winState.window.webContents.send(channel, ...args);
+    if (winState && winState.window) {
+      safeSend(winState.window, channel, ...args);
+    }
     for (const v of winState.views.values()) {
       try { 
-        const url = v.webContents.getURL();
-        if (!url || url.startsWith('file://')) v.webContents.send(channel, ...args);
+        if (v && v.webContents && !v.webContents.isDestroyed()) {
+          const url = v.webContents.getURL();
+          if (!url || url.startsWith('file://')) {
+            safeSend(v.webContents, channel, ...args);
+          }
+        }
       } catch { }
     }
   }
@@ -1217,13 +1241,13 @@ function createView(winState, id, url, lazy = false) {
   }
 
   view.webContents.on('page-favicon-updated', (_, favs) => {
-    if (favs?.length) winState.window.webContents.send('favicon-changed', id, favs[0]);
+    if (favs?.length) safeSend(winState.window, 'favicon-changed', id, favs[0]);
   });
 
   bindCosmeticFilters(view.webContents);
 
   view.webContents.on('found-in-page', (event, result) => {
-    winState.window.webContents.send('found-in-page', result);
+    safeSend(winState.window, 'found-in-page', result);
   });
 
   view.webContents.on('context-menu', (event, params) => {
@@ -1290,7 +1314,7 @@ function createView(winState, id, url, lazy = false) {
     pushToNavStack(id, u);
     broadcastNavState(winState, id);
     const uiUrl = getUIUrl(u);
-    winState.window.webContents.send('url-changed', id, uiUrl);
+    safeSend(winState.window, 'url-changed', id, uiUrl);
     if (winState.activeViewId === id) pushHistory(u, '', winState.isPrivate);
 
     // Only prompt to save if credentials were actually captured from a form
@@ -1299,7 +1323,7 @@ function createView(winState, id, url, lazy = false) {
     if (!pendingCredentials.has(view.webContents.id)) return;
     let domain;
     try { domain = new URL(u).hostname; } catch { return; }
-    winState.window.webContents.send('pw-check-save-prompt', id, domain);
+    safeSend(winState.window, 'pw-check-save-prompt', id, domain);
   });
 
   view.webContents.on('did-finish-load', async () => {
@@ -1337,7 +1361,7 @@ function createView(winState, id, url, lazy = false) {
       pushToNavStack(id, u);
       broadcastNavState(winState, id);
     }
-    winState.window.webContents.send('url-changed', id, getUIUrl(u));
+    safeSend(winState.window, 'url-changed', id, getUIUrl(u));
     if (isMainFrame && winState.activeViewId === id && !u.startsWith('file://')) {
       pushHistory(u, view.webContents.getTitle(), winState.isPrivate);
     }
@@ -1346,7 +1370,7 @@ function createView(winState, id, url, lazy = false) {
   view.webContents.on('page-title-updated', (_, title) => {
     let t = title;
     if (t.includes('newtab.html')) t = 'Home';
-    winState.window.webContents.send('title-changed', id, t);
+    safeSend(winState.window, 'title-changed', id, t);
     
     if (!winState.isPrivate) {
       const currentUrl = view.webContents.getURL();
@@ -1357,8 +1381,8 @@ function createView(winState, id, url, lazy = false) {
     }
   });
 
-  view.webContents.on('did-start-loading', () => winState.window.webContents.send('loading-status', id, true));
-  view.webContents.on('did-stop-loading', () => winState.window.webContents.send('loading-status', id, false));
+  view.webContents.on('did-start-loading', () => safeSend(winState.window, 'loading-status', id, true));
+  view.webContents.on('did-stop-loading', () => safeSend(winState.window, 'loading-status', id, false));
 
   view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (isMainFrame && errorCode !== -3) { // Skip cancelled requests
@@ -1411,7 +1435,7 @@ function sleepTab(winState, id) {
   view.webContents.destroy();
   winState.views.delete(id);
 
-  winState.window.webContents.send('tab-slept', id);
+  safeSend(winState.window, 'tab-slept', id);
   console.log('[kiyo] Tab slept:', id);
 }
 
@@ -1420,7 +1444,7 @@ function wakeTab(winState, id) {
   if (!data) return;
   sleepedTabs.delete(id);
   createView(winState, id, data.url, true); // Create view in lazy (pending) state
-  winState.window.webContents.send('tab-woke', id, data.url);
+  safeSend(winState.window, 'tab-woke', id, data.url);
 }
 
 function switchView(winState, id) {
@@ -1456,7 +1480,7 @@ function switchView(winState, id) {
     }
     winState.window.contentView.addChildView(v);
     updateActiveViewBounds(winState);
-    winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
+    safeSend(winState.window, 'url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
     broadcastNavState(winState, id);
   }
 
