@@ -1658,14 +1658,26 @@ async function refreshExtensionToolbar() {
 if (window.electronAPI) {
   const browserContent = document.getElementById('browser-content');
   if (browserContent) {
+    // Cache last-sent coordinates to avoid redundant IPC calls on every resize tick
+    let _lastSentBounds = null;
+
     const sendBounds = () => {
       const rect = browserContent.getBoundingClientRect();
-      window.electronAPI.updateViewBounds({
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.max(1, Math.round(rect.width)),
-        height: Math.max(1, Math.round(rect.height))
-      });
+      const x = Math.round(rect.left);
+      const y = Math.round(rect.top);
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
+
+      // Skip IPC if bounds are identical to what we already sent
+      if (_lastSentBounds &&
+          _lastSentBounds.x === x &&
+          _lastSentBounds.y === y &&
+          _lastSentBounds.width === width &&
+          _lastSentBounds.height === height) {
+        return;
+      }
+      _lastSentBounds = { x, y, width, height };
+      window.electronAPI.updateViewBounds(_lastSentBounds);
     };
 
     const resizeObserver = new ResizeObserver(() => {
@@ -1682,3 +1694,4 @@ if (window.electronAPI) {
     }
   }
 }
+

@@ -52,11 +52,10 @@
  *    strictHttps, tabSleepEnabled, tabSleepDelay, geometry.
  * ============================================================
  */
-const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell, powerMonitor } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell, powerMonitor, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
-const AdmZip = require('adm-zip');
 
 // ─── Chromium Security Hardening Switches ──────────────────────────────────────
 app.commandLine.appendSwitch('enable-sandbox');
@@ -66,7 +65,7 @@ app.commandLine.appendSwitch('js-flags', '--max-semi-space-size=1024');
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
 const { PrivateSessionManager } = require('./lib/session');
-const { setupPrivacyShield, bindCosmeticFilters } = require('./lib/privacy');
+const { setupPrivacyShield, bindCosmeticFilters, evaluatePrivacyShield } = require('./lib/privacy');
 const { readJSON, writeJSON } = require('./lib/utils');
 const adblock = require('./adblock');
 const { extractArticle, isArticlePage } = require('./readability');
@@ -511,17 +510,18 @@ async function createWindow(isPrivate = false, restoredSession = null) {
       removeWindow: async (browserWindow) => browserWindow.close(),
     });
 
-    // Load all previously installed extensions on startup
+    // Load all previously installed extensions on startup (async to avoid blocking main thread)
     if (fs.existsSync(EXTENSIONS_PATH)) {
-      const extDirs = fs.readdirSync(EXTENSIONS_PATH);
+      const extDirs = await fs.promises.readdir(EXTENSIONS_PATH);
       for (const dir of extDirs) {
         const extPath = path.join(EXTENSIONS_PATH, dir);
-        if (fs.statSync(extPath).isDirectory()) {
-          try {
+        try {
+          const stat = await fs.promises.stat(extPath);
+          if (stat.isDirectory()) {
             await session.defaultSession.loadExtension(extPath, { allowFileAccess: true });
-          } catch (e) {
-            console.error('[kiyo-ext] Failed to load extension:', dir, e.message);
           }
+        } catch (e) {
+          console.error('[kiyo-ext] Failed to load extension:', dir, e.message);
         }
       }
     }
@@ -532,11 +532,24 @@ async function createWindow(isPrivate = false, restoredSession = null) {
     extensionsManager.addTab(win.webContents, win);
   }
 
-  let _resizeTimer = null;
+  // ── Hybrid Throttle+Debounce resize handler ───────────────────────────────
+  // Throttle fires immediately so the view tracks the window during drag;
+  // the trailing debounce guarantees a final accurate sync after the user
+  // stops resizing (handles fractional pixel rounding edge cases).
+  let _resizeThrottleLast = 0;
+  let _resizeDebounceTimer = null;
   win.on('resize', () => {
     winState.lastViewBounds = null;
-    if (_resizeTimer) clearTimeout(_resizeTimer);
-    _resizeTimer = setTimeout(() => updateActiveViewBounds(winState), 16);
+    const now = Date.now();
+    if (now - _resizeThrottleLast >= 16) { // ~60 fps throttle
+      _resizeThrottleLast = now;
+      updateActiveViewBounds(winState);
+    }
+    if (_resizeDebounceTimer) clearTimeout(_resizeDebounceTimer);
+    _resizeDebounceTimer = setTimeout(() => {
+      _resizeDebounceTimer = null;
+      updateActiveViewBounds(winState);
+    }, 80); // trailing edge catches the final settled position
   });
 
   // ── CSP ─────────────────────────────────────────────────────────────────────
@@ -1024,32 +1037,36 @@ ipcMain.handle('get-autocomplete', async (_, text) => {
   if (!text || text.length < 2) return [];
   const q = text.toLowerCase();
   const results = [];
+  const seenUrls = new Set();
 
-  // Search Bookmarks
-  bookmarks.forEach(bm => {
+  // Search Bookmarks — early-exit loop avoids scanning the entire array
+  for (const bm of bookmarks) {
+    if (results.length >= 5) break;
     if (bm.title.toLowerCase().includes(q) || bm.url.toLowerCase().includes(q)) {
       results.push({ title: bm.title, url: bm.url, type: 'bookmark' });
+      seenUrls.add(bm.url);
     }
-  });
+  }
 
-  // Search History
-  history.forEach(h => {
-    if (results.length >= 10) return;
-    if (results.some(r => r.url === h.url)) return;
+  // Search History — early-exit, O(1) duplicate check with Set instead of Array.some
+  for (const h of history) {
+    if (results.length >= 10) break;
+    if (seenUrls.has(h.url)) continue;
     if (h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)) {
       results.push({ title: h.title, url: h.url, type: 'history' });
+      seenUrls.add(h.url);
     }
-  });
+  }
 
   // Search Engine Suggestions (Fetch from Google)
   try {
     const response = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(text)}`);
     const data = await response.json();
     if (data && data[1]) {
-      data[1].forEach(suggestion => {
-        if (results.length >= 10) return;
+      for (const suggestion of data[1]) {
+        if (results.length >= 10) break;
         results.push({ title: suggestion, url: suggestion, type: 'search' });
-      });
+      }
     }
   } catch (e) {
     console.error('[kiyo] suggest error:', e.message);
@@ -1265,7 +1282,7 @@ function createView(winState, id, url, lazy = false) {
   });
 
   view.webContents.on('context-menu', (event, params) => {
-    const { clipboard } = require('electron');
+    // clipboard is required at module scope — no dynamic require needed here
     const template = [];
 
     // Spelling suggestions
@@ -1569,8 +1586,12 @@ function closeView(winState, id) {
 
   const v = winState.views.get(id);
   if (!v) return;
+
+  // Plug credentials memory leak — drop pending save prompt for this tab
+  pendingCredentials.delete(v.webContents.id);
+
   if (winState.activeViewId === id) {
-    winState.window.contentView.removeChildView(v);
+    try { winState.window.contentView.removeChildView(v); } catch (_) {}
     winState.activeViewId = null;
   }
   viewToWindow.delete(v.webContents.id);
@@ -1586,46 +1607,50 @@ function updateActiveViewBounds(winState) {
   const v = winState.views.get(winState.activeViewId);
   if (!v) return;
   const { width, height } = winState.window.getContentBounds();
-  
-  if (winState.htmlFullscreenTabId === winState.activeViewId) {
-    v.setBounds({
-      x: 0,
-      y: 0,
-      width: width,
-      height: height,
-    });
-    try {
-      const parent = winState.window.contentView;
-      parent.removeChildView(v);
-      parent.addChildView(v);
-    } catch (e) {}
-    return;
-  }
 
-  if (winState.lastViewBounds) {
-    v.setBounds({
+  let newBounds;
+  if (winState.htmlFullscreenTabId === winState.activeViewId) {
+    newBounds = { x: 0, y: 0, width, height };
+  } else if (winState.lastViewBounds) {
+    newBounds = {
       x: winState.lastViewBounds.x,
       y: winState.lastViewBounds.y,
       width: winState.lastViewBounds.width,
       height: winState.lastViewBounds.height
-    });
+    };
   } else {
     const headerH = settings.compactUi ? 44 : Math.round(settings.geometry.headerHeight);
     const sbW = settings.compactUi ? 60 : Math.round(settings.geometry.sidebarWidth);
     const isRight = settings.sidebarPosition === 'right';
-    v.setBounds({
+    newBounds = {
       x: isRight ? 0 : sbW,
       y: headerH,
       width: Math.max(1, Math.round(width - sbW)),
       height: Math.max(1, Math.round(height - headerH)),
-    });
+    };
   }
 
+  // ── Bounds diffing: skip setBounds if nothing changed to avoid GPU redraws ─
+  try {
+    const cur = v.getBounds();
+    if (cur.x !== newBounds.x || cur.y !== newBounds.y ||
+        cur.width !== newBounds.width || cur.height !== newBounds.height) {
+      v.setBounds(newBounds);
+    }
+  } catch (_) {
+    v.setBounds(newBounds);
+  }
+
+  // ── Lazy attach: only re-parent the view if it is not already a child ──────
+  // Calling removeChildView+addChildView on every resize triggers an expensive
+  // GPU context reconstruction. We only do it when the view is actually detached.
   try {
     const parent = winState.window.contentView;
-    parent.removeChildView(v);
-    parent.addChildView(v);
-  } catch (e) {}
+    const alreadyAttached = parent.children && parent.children.includes(v);
+    if (!alreadyAttached) {
+      parent.addChildView(v);
+    }
+  } catch (_) {}
 }
 
 function setupSecureDNS(sess) {
@@ -1685,7 +1710,7 @@ function setupAdblock(sess) {
 
     if (settings.adblockEnabled) {
       try {
-        const { evaluatePrivacyShield } = require('./lib/privacy');
+        // evaluatePrivacyShield is imported at module scope — no dynamic require overhead
         const shieldRes = evaluatePrivacyShield(url, details);
         if (shieldRes.redirectURL) return callback({ redirectURL: shieldRes.redirectURL });
         if (shieldRes.cancel) {
