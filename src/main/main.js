@@ -790,6 +790,7 @@ ipcMain.on('duplicate-tab', (event, id) => {
   if (!winState) return;
   const v = winState.views.get(id);
   if (!v || winState.views.size >= MAX_TABS) return;
+  if (!v.webContents || v.webContents.isDestroyed()) return;
   const newId = newTabId();
   const url = v.webContents.getURL() || PAGE.home();
   createView(winState, newId, url);
@@ -823,7 +824,7 @@ ipcMain.on('show-tab-menu', (event, id, currentGroupId, groupsList) => {
     { label: 'Duplicate Tab', click: () => winState?.window.webContents.send('tab-menu-action', id, 'duplicate') },
     { label: 'Reload Tab', click: () => {
         const v = winState?.views.get(id);
-        if (v) v.webContents.reload();
+        if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.reload();
       }
     },
     { type: 'separator' }
@@ -899,7 +900,7 @@ ipcMain.on('navigate', (event, url) => {
   if (!winState) return;
   const id = winState.activeViewId;
   const v = winState.views.get(id);
-  if (!v) return;
+  if (!v || !v.webContents || v.webContents.isDestroyed()) return;
   const resolved = resolveUrl(url);
   if (!resolved) return;
 
@@ -927,25 +928,25 @@ ipcMain.on('navigate', (event, url) => {
 ipcMain.on('find-in-page', (event, text, options) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
-  if (v) v.webContents.findInPage(text, options);
+  if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.findInPage(text, options);
 });
 
 ipcMain.on('stop-find-in-page', (event, action) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
-  if (v) v.webContents.stopFindInPage(action);
+  if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.stopFindInPage(action);
 });
 
 ipcMain.on('set-zoom', (event, level) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
-  if (v) v.webContents.setZoomLevel(level);
+  if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.setZoomLevel(level);
 });
 
 ipcMain.handle('get-zoom', (event) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
-  return v ? v.webContents.getZoomLevel() : 0;
+  return (v && v.webContents && !v.webContents.isDestroyed()) ? v.webContents.getZoomLevel() : 0;
 });
 
 ipcMain.on('go-back', (event) => {
@@ -953,7 +954,7 @@ ipcMain.on('go-back', (event) => {
   if (!winState) return;
   const tabId = winState.activeViewId;
   const v = winState.views.get(tabId);
-  if (!v) return;
+  if (!v || !v.webContents || v.webContents.isDestroyed()) return;
 
   if (v.webContents.canGoBack()) {
     v.webContents.goBack();
@@ -968,7 +969,7 @@ ipcMain.on('go-forward', (event) => {
   if (!winState) return;
   const tabId = winState.activeViewId;
   const v = winState.views.get(tabId);
-  if (!v) return;
+  if (!v || !v.webContents || v.webContents.isDestroyed()) return;
 
   if (v.webContents.canGoForward()) {
     v.webContents.goForward();
@@ -1020,7 +1021,7 @@ ipcMain.on('reader-go-back', (event) => {
 ipcMain.on('reload', (event) => {
   const winState = getWinState(event.sender);
   const v = winState?.views.get(winState.activeViewId);
-  if (v) v.webContents.reload();
+  if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.reload();
 });
 
 const saveSessionDebounced = debounce((data) => writeJSON(SESSION_PATH, data), 500);
@@ -1110,7 +1111,7 @@ ipcMain.handle('check-reader-mode', async (_, tabId) => {
   }
   for (const winState of windows.values()) {
     const view = winState.views.get(tabId);
-    if (view) {
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
       try {
         const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML');
         const url = view.webContents.getURL();
@@ -1195,7 +1196,7 @@ function getTabIdByWebContents(wc) {
   if (!wc) return null;
   for (const winState of windows.values()) {
     for (const [tabId, view] of winState.views.entries()) {
-      if (view.webContents.id === wc.id) {
+      if (view.webContents && !view.webContents.isDestroyed() && view.webContents.id === wc.id) {
         return tabId;
       }
     }
@@ -1486,6 +1487,11 @@ function sleepTab(winState, id) {
   if (id === winState.activeViewId) return;
   const view = winState.views.get(id);
   if (!view) return;
+  // Guard: view may already be in a destroyed state (e.g. from a prior close)
+  if (!view.webContents || view.webContents.isDestroyed()) {
+    winState.views.delete(id);
+    return;
+  }
 
   sleepedTabs.set(id, {
     url: view.webContents.getURL() || view.pendingUrl,
@@ -1493,10 +1499,11 @@ function sleepTab(winState, id) {
     favicon: null
   });
 
-  try { winState.window.contentView.removeChildView(view); } catch(e) {}
-  viewToWindow.delete(view.webContents.id);
-  view.webContents.destroy();
+  // Delete from map BEFORE destroying so no other code can reach a dead view
   winState.views.delete(id);
+  viewToWindow.delete(view.webContents.id);
+  try { winState.window.contentView.removeChildView(view); } catch (_) {}
+  view.webContents.destroy();
 
   safeSend(winState.window, 'tab-slept', id);
   console.log('[kiyo] Tab slept:', id);
@@ -1546,14 +1553,19 @@ function switchView(winState, id) {
   }
 
   if (v) {
-    if (v.pendingUrl) {
-      v.webContents.loadURL(v.pendingUrl).catch(e => console.error('[kiyo] view load:', e.message));
-      v.pendingUrl = null;
+    if (v.webContents && !v.webContents.isDestroyed()) {
+      if (v.pendingUrl) {
+        v.webContents.loadURL(v.pendingUrl).catch(e => console.error('[kiyo] view load:', e.message));
+        v.pendingUrl = null;
+      }
+      winState.window.contentView.addChildView(v);
+      updateActiveViewBounds(winState);
+      safeSend(winState.window, 'url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
+      broadcastNavState(winState, id);
+    } else {
+      // The view's webContents was destroyed before we could switch — remove the stale entry
+      winState.views.delete(id);
     }
-    winState.window.contentView.addChildView(v);
-    updateActiveViewBounds(winState);
-    safeSend(winState.window, 'url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
-    broadcastNavState(winState, id);
   }
 
   if (prevId && prevId !== id && winState.views.has(prevId)) {
@@ -1645,6 +1657,7 @@ function updateActiveViewBounds(winState) {
   // Calling removeChildView+addChildView on every resize triggers an expensive
   // GPU context reconstruction. We only do it when the view is actually detached.
   try {
+    if (!v.webContents || v.webContents.isDestroyed()) return;
     const parent = winState.window.contentView;
     const alreadyAttached = parent.children && parent.children.includes(v);
     if (!alreadyAttached) {
@@ -1815,7 +1828,7 @@ app.whenReady().then(() => {
       if (e && e.shift) {
         win.webContents.send('shortcut', 'toggle-reader');
       } else {
-        if (v) v.webContents.reload();
+        if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.reload();
       }
     },
     'f': (win) => win.webContents.send('shortcut', 'open-find'),
@@ -1823,7 +1836,7 @@ app.whenReady().then(() => {
       if (e.shift) {
         const winState = windows.get(win.webContents.id) || Array.from(windows.values()).find(s => s.window === win);
         const v = winState?.views.get(winState?.activeViewId);
-        if (v) v.webContents.toggleDevTools({ mode: 'detach' });
+        if (v && v.webContents && !v.webContents.isDestroyed()) v.webContents.toggleDevTools({ mode: 'detach' });
         else win.webContents.toggleDevTools({ mode: 'detach' });
       }
     },
@@ -1845,7 +1858,7 @@ app.whenReady().then(() => {
           if (winState) {
             const tabId = winState.activeViewId;
             const v = winState.views.get(tabId);
-            if (v) {
+            if (v && v.webContents && !v.webContents.isDestroyed()) {
               if (key === 'ArrowLeft') {
                 event.preventDefault();
                 if (v.webContents.canGoBack()) {
