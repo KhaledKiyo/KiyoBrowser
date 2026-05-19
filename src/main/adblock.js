@@ -11,6 +11,7 @@ let stats = { blocked: 0 };
 const exactDomains = new Set();
 const stringMatches = [];
 const ruleIndex = new Map();
+const checkedPrefixes = new Set(); // Reusable set to avoid GC allocation on every request
 
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
@@ -48,7 +49,14 @@ function parseRuleLine(line) {
     }
   }
 
-  let cleaned = rule.replace(/^[|*]+/, '').replace(/[|*^]+$/, '').toLowerCase();
+  let cleaned = rule.toLowerCase();
+  while (cleaned.startsWith('|') || cleaned.startsWith('*')) {
+    cleaned = cleaned.substring(1);
+  }
+  while (cleaned.endsWith('|') || cleaned.endsWith('*') || cleaned.endsWith('^')) {
+    cleaned = cleaned.substring(0, cleaned.length - 1);
+  }
+
   if (cleaned.length > 3) {
     stringMatches.push(cleaned);
     const prefix = cleaned.substring(0, 3);
@@ -75,12 +83,20 @@ for (const p of BUILTIN_PATTERNS) {
 }
 
 
-function loadRules(filePath) {
+async function loadRules(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = await fs.promises.readFile(filePath, 'utf8');
     const lines = content.split('\n');
-    for (const line of lines) {
-      parseRuleLine(line);
+    let index = 0;
+    const batchSize = 1000;
+    while (index < lines.length) {
+      const limit = Math.min(index + batchSize, lines.length);
+      for (let i = index; i < limit; i++) {
+        parseRuleLine(lines[i]);
+      }
+      index = limit;
+      // Yield to Node.js event loop to prevent blocking the UI thread during startup
+      await new Promise(resolve => setImmediate(resolve));
     }
   } catch (err) {
     console.error('[adblock] Error parsing rules:', err.message);
@@ -95,7 +111,7 @@ async function initAdblock() {
   const checkAndUpdate = async (filePath, url) => {
     let needsDownload = true;
     if (fs.existsSync(filePath)) {
-      const fileStats = fs.statSync(filePath);
+      const fileStats = await fs.promises.stat(filePath);
       if (Date.now() - fileStats.mtimeMs < CACHE_MAX_AGE) {
         needsDownload = false;
       }
@@ -111,7 +127,7 @@ async function initAdblock() {
     }
     
     if (fs.existsSync(filePath)) {
-      loadRules(filePath);
+      await loadRules(filePath);
     }
   };
 
@@ -144,7 +160,7 @@ function shouldBlock(urlStr, resourceType) {
     const len = urlLower.length;
     if (len < 4) return false;
 
-    const checkedPrefixes = new Set();
+    checkedPrefixes.clear(); // Reuse global set to avoid heap allocations
     for (let i = 0; i <= len - 3; i++) {
       const trigram = urlLower.substring(i, i + 3);
       if (checkedPrefixes.has(trigram)) continue;

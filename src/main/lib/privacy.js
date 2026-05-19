@@ -155,23 +155,23 @@ const FAST_PATTERNS = [
   'analytics.js', 'sentry.js', 'sentry.min.js', 'bundle.tracing.min.js'
 ];
 
-const BLOCKED_PATTERNS_REGEX = [
-  /\/ads?\//i, /\/pixels?\//i, /stats\.g\.doubleclick\.net/i,
-  /log\.fc\.yahoo\.com/i, /geo\.yahoo\.com/i, /udcm\.yahoo\.com/i,
-  /tracking\./i, /metrics\./i, /ads\.js/i, /pagead\.js/i,
-  /banner/i, /sponsor/i, /mistat/i, /bugsnag/i,
-  /\/beacon\//i, /\/collect\//i, /\/impression\//i,
-  /\/conversion\//i, /\/retarget/i, /prebid/i,
-  /googletag/i, /fbevents/i, /clarity\.js/i,
-  /hotjar/i, /mouseflow/i, /fullstory/i,
-  /[?&]utm_/i, /[?&]fbclid=/i, /[?&]gclid=/i,
-  /[?&]ttclid=/i, /[?&]msclkid=/i,
-  /\/banner(?:s)?\.(?:gif|jpg|jpeg|png|swf|webp)/i,
-  /\/ads?\.(?:gif|jpg|jpeg|png|swf|webp)/i,
-  /\/advert\.(?:gif|jpg|jpeg|png|swf|webp)/i,
-  /sentry\.(?:min\.)?js/i, /analytics\.(?:min\.)?js/i,
-  /\/bundle\.tracing\.(?:min\.)?js/i
-];
+const COMBINED_BLOCKED_PATTERNS_REGEX = new RegExp([
+  '\\/ads?\\/', '\\/pixels?\\/', 'stats\\.g\\.doubleclick\\.net',
+  'log\\.fc\\.yahoo\\.com', 'geo\\.yahoo\\.com', 'udcm\\.yahoo\\.com',
+  'tracking\\.', 'metrics\\.', 'ads\\.js', 'pagead\\.js',
+  'banner', 'sponsor', 'mistat', 'bugsnag',
+  '\\/beacon\\/', '\\/collect\\/', '\\/impression\\/',
+  '\\/conversion\\/', '\\/retarget', 'prebid',
+  'googletag', 'fbevents', 'clarity\\.js',
+  'hotjar', 'mouseflow', 'fullstory',
+  '[?&]utm_', '[?&]fbclid=', '[?&]gclid=',
+  '[?&]ttclid=', '[?&]msclkid=',
+  '\\/banner(?:s)?\\.(?:gif|jpg|jpeg|png|swf|webp)',
+  '\\/ads?\\.(?:gif|jpg|jpeg|png|swf|webp)',
+  '\\/advert\\.(?:gif|jpg|jpeg|png|swf|webp)',
+  'sentry\\.(?:min\\.)?js', 'analytics\\.(?:min\\.)?js',
+  '\\/bundle\\.tracing\\.(?:min\\.)?js'
+].join('|'), 'i');
 
 const HIGH_RISK_RESOURCES = new Set([
   // 'media' intentionally excluded — blocking it kills YouTube/Twitch video streams
@@ -315,12 +315,19 @@ function isDomainBlocked(hostname) {
   const normalized = normalizeHostname(hostname);
   if (!normalized) return false;
   if (DOMAIN_CACHE.has(normalized)) return DOMAIN_CACHE.get(normalized);
-  for (const blocked of BLOCKED_DOMAINS) {
-    if (normalized === blocked || normalized.endsWith(`.${blocked}`)) {
+
+  // Traverse the domain hierarchy from right to left to perform O(1) checks
+  let part = normalized;
+  while (part) {
+    if (BLOCKED_DOMAINS.has(part)) {
       DOMAIN_CACHE.set(normalized, true);
       return true;
     }
+    const idx = part.indexOf('.');
+    if (idx === -1) break;
+    part = part.substring(idx + 1);
   }
+
   DOMAIN_CACHE.set(normalized, false);
   return false;
 }
@@ -397,7 +404,7 @@ function evaluatePrivacyShield(url, details, options = {}) {
         || hostname.endsWith('ggpht.com');
       if (!isYouTube || !isFirstParty(parsedUrl, initiator)) {
         const lowerUrl = url.toLowerCase();
-        if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || BLOCKED_PATTERNS_REGEX.some(re => re.test(url))) {
+        if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || COMBINED_BLOCKED_PATTERNS_REGEX.test(url)) {
           return { cancel: true };
         }
       }

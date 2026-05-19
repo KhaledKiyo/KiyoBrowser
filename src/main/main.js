@@ -534,6 +534,7 @@ async function createWindow(isPrivate = false, restoredSession = null) {
 
   let _resizeTimer = null;
   win.on('resize', () => {
+    winState.lastViewBounds = null;
     if (_resizeTimer) clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(() => updateActiveViewBounds(winState), 16);
   });
@@ -661,7 +662,10 @@ const ipcContext = {
   setSetting: (key, value) => {
     settings[key] = value;
     if (key === 'compactUi' || key === 'sidebarPosition') {
-      for (const winState of windows.values()) updateActiveViewBounds(winState);
+      for (const winState of windows.values()) {
+        winState.lastViewBounds = null;
+        updateActiveViewBounds(winState);
+      }
     }
   },
   validateSetting: (key, value) => SETTING_SCHEMA[key] && SETTING_SCHEMA[key](value),
@@ -701,6 +705,7 @@ ipcMain.on('update-geometry', (event, geometry) => {
   if (winState && SETTING_SCHEMA.geometry(geometry)) {
     settings.geometry = geometry;
     saveSettings();
+    winState.lastViewBounds = null;
     updateActiveViewBounds(winState);
   }
 });
