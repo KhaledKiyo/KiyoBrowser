@@ -1,6 +1,6 @@
 # 🌌 KiyoBrowser
 
-[![Version](https://img.shields.io/badge/version-1.0.1--BETA-blueviolet?style=for-the-badge)](https://github.com/KhaledKiyo/KiyoBrowser/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0--BETA-blueviolet?style=for-the-badge)](https://github.com/KhaledKiyo/KiyoBrowser/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-42.0.1-47848F?style=for-the-badge&logo=electron)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Arch%20Linux-1793D1?style=for-the-badge&logo=arch-linux)](https://archlinux.org/)

@@ -14,19 +14,28 @@ const articleContent = document.getElementById('article-content');
 let originalUrl = '';
 
 // ─── Initialize Reader Mode ───────────────────────────────────────────────────
-function initReader() {
+async function initReader() {
   lucide.createIcons();
   
+  // Restore font size from localStorage
+  const savedFont = localStorage.getItem('kiyo-reader-font') || 'medium';
+  document.body.className = `font-size-${savedFont}`;
+  menuItems.forEach(i => {
+    if (i.getAttribute('data-size') === savedFont) {
+      i.classList.add('active');
+    } else {
+      i.classList.remove('active');
+    }
+  });
+
   let articleData = null;
 
-  // Try to get data from sessionStorage first
-  const sessionData = sessionStorage.getItem('kiyo_reader_data');
-  if (sessionData) {
+  // Retrieve data from main process IPC (robust, cross-process safe)
+  if (window.electronAPI && window.electronAPI.getReaderArticle) {
     try {
-      articleData = JSON.parse(sessionData);
-      sessionStorage.removeItem('kiyo_reader_data'); // clean up
+      articleData = await window.electronAPI.getReaderArticle();
     } catch (e) {
-      console.error('Failed to parse reader data from session', e);
+      console.error('Failed to fetch reader article from main process', e);
     }
   }
 
@@ -88,7 +97,9 @@ function showError() {
 // ─── Event Listeners ──────────────────────────────────────────────────────────
 
 backBtn.addEventListener('click', () => {
-  if (window.electronAPI && window.electronAPI.goBack) {
+  if (window.electronAPI && window.electronAPI.readerGoBack) {
+    window.electronAPI.readerGoBack();
+  } else if (window.electronAPI && window.electronAPI.goBack) {
     window.electronAPI.goBack();
   } else {
     window.history.back();
@@ -124,14 +135,15 @@ menuItems.forEach(item => {
     menuItems.forEach(i => i.classList.remove('active'));
     item.classList.add('active');
 
-    // Change body class
+    // Change body class and save to localStorage
     const size = item.getAttribute('data-size');
     document.body.className = `font-size-${size}`;
+    localStorage.setItem('kiyo-reader-font', size);
     
     // Close menu
     fontSizeMenu.style.display = 'none';
   });
 });
 
-// Initialize
-initReader();
+// Initialize inside DOMContentLoaded to ensure preload is fully loaded
+window.addEventListener('DOMContentLoaded', initReader);

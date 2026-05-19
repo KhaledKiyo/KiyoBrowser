@@ -1,6 +1,6 @@
 {
   "name": "kiyobrowser",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Khaled",
   "description": "High-performance, Arch-inspired web browser.",
   "main": "src/main/main.js",
@@ -11,7 +11,11 @@
   },
   "devDependencies": {
     "electron": "^42.0.1",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "electron-chrome-extensions": "^4.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.10"
   },
   "build": {
     "appId": "com.khaled.kiyobrowser",

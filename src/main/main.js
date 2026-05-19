@@ -55,6 +55,14 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { ElectronChromeExtensions } = require('electron-chrome-extensions');
+const AdmZip = require('adm-zip');
+
+// ─── Chromium Security Hardening Switches ──────────────────────────────────────
+app.commandLine.appendSwitch('enable-sandbox');
+app.commandLine.appendSwitch('site-per-process');
+app.commandLine.appendSwitch('enable-strict-mixed-content-checking');
+app.commandLine.appendSwitch('js-flags', '--max-semi-space-size=1024');
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
 const { PrivateSessionManager } = require('./lib/session');
@@ -66,6 +74,8 @@ const PasswordManager = require('./passwords');
 
 // ─── App config ───────────────────────────────────────────────────────────────
 const USER_DATA = app.getPath('userData');
+const EXTENSIONS_PATH = path.join(USER_DATA, 'kiyo-extensions');
+if (!fs.existsSync(EXTENSIONS_PATH)) fs.mkdirSync(EXTENSIONS_PATH, { recursive: true });
 const pwManager = new PasswordManager(USER_DATA);
 const SETTINGS_PATH = path.join(USER_DATA, 'kiyo-settings.json');
 const BOOKMARKS_PATH = path.join(USER_DATA, 'kiyo-bookmarks.json');
@@ -93,6 +103,7 @@ const PAGE = {
   welcome: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'welcome', 'welcome.html'),
   reader: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'reader', 'reader.html'),
   passwords: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'passwords', 'passwords.html'),
+  extensions: () => 'file://' + path.join(__dirname, '..', 'renderer', 'pages', 'extensions', 'extensions.html'),
 };
 
 function normaliseFileUrl(u) {
@@ -106,7 +117,64 @@ function normaliseFileUrl(u) {
 const windows = new Map(); // win.webContents.id -> winState
 const viewToWindow = new Map(); // view.webContents.id -> winState
 const downloads = [];
+let extensionsManager = null;
 const pendingCredentials = new Map(); // wc.id -> { domain, username, password }
+const readerArticles = new Map();     // tabId -> article data
+const tabNavStack = new Map();        // tabId -> Array of URLs
+
+function pushToNavStack(tabId, url) {
+  if (!tabNavStack.has(tabId)) {
+    tabNavStack.set(tabId, []);
+  }
+  const stack = tabNavStack.get(tabId);
+  if (stack.length === 0 || stack[stack.length - 1] !== url) {
+    if (stack.length > 50) stack.shift();
+    stack.push(url);
+  }
+}
+
+function softwareGoBack(winState, tabId) {
+  const stack = tabNavStack.get(tabId);
+  if (!stack || stack.length <= 1) return false;
+  stack.pop(); // pop current
+  const prevUrl = stack[stack.length - 1]; // peek previous
+  
+  const v = winState.views.get(tabId);
+  if (v) {
+    const isCurrentlyInternal = v.webContents.getURL().startsWith('file://') || v.webContents.getURL().startsWith('kiyo://');
+    const isNavigatingInternal = prevUrl.startsWith('file://') || prevUrl.startsWith('kiyo://');
+    
+    if (isCurrentlyInternal !== isNavigatingInternal) {
+      winState.window.contentView.removeChildView(v);
+      winState.views.delete(tabId);
+      viewToWindow.delete(v.webContents.id);
+      v.webContents.destroy();
+      createView(winState, tabId, prevUrl);
+    } else {
+      v.webContents.loadURL(prevUrl).catch(e => console.error('[kiyo] soft back:', e.message));
+    }
+    return true;
+  }
+  return false;
+}
+
+function broadcastNavState(winState, tabId) {
+  if (!winState || !winState.window || winState.window.isDestroyed()) return;
+  const v = winState.views.get(tabId);
+  if (!v) return;
+  
+  const webCanBack = v.webContents.canGoBack();
+  const webCanForward = v.webContents.canGoForward();
+  
+  const stack = tabNavStack.get(tabId);
+  const softCanBack = stack && stack.length > 1;
+  
+  const canBack = webCanBack || softCanBack;
+  const canForward = webCanForward;
+  
+  winState.window.webContents.send('nav-state', tabId, canBack, canForward);
+}
+
 
 const tabSleepTimers = new Map(); // tabId → setTimeout handle
 const sleepedTabs = new Map();    // tabId → { url, title, favicon } (sleeping tabs have no view)
@@ -257,7 +325,7 @@ function pushHistory(url, title, isPrivate) {
 }
 
 // ─── Window creation ──────────────────────────────────────────────────────────
-function createWindow(isPrivate = false, restoredSession = null) {
+async function createWindow(isPrivate = false, restoredSession = null) {
   if (isPrivate) PrivateSessionManager.increment();
 
   const win = new BrowserWindow({
@@ -275,17 +343,12 @@ function createWindow(isPrivate = false, restoredSession = null) {
     },
   });
 
-  // Apply Ad Blocker to this window's session
-  setupAdblock(win.webContents.session);
-  setupSecureDNS(win.webContents.session);
+  // Apply secure global wrappers to the session
+  secureSession(win.webContents.session);
   try {
     win.webContents.session.setCacheSize(settings.diskCacheCap * 1024 * 1024);
   } catch {}
   bindCosmeticFilters(win.webContents);
-
-  // Ensure spellchecker is enabled for the session (especially for private partitions)
-  win.webContents.session.setSpellCheckerEnabled(true);
-  win.webContents.session.setSpellCheckerLanguages(['en-US']);
 
   const winState = {
     window: win,
@@ -297,6 +360,71 @@ function createWindow(isPrivate = false, restoredSession = null) {
   windows.set(win.webContents.id, winState);
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'ui', 'index.html'));
+
+  if (!extensionsManager) {
+    extensionsManager = new ElectronChromeExtensions({
+      session: session.defaultSession,
+      createTab: async (details) => {
+        const winState = [...windows.values()][0];
+        if (!winState) return [null, null];
+        const newId = newTabId();
+        const resolved = resolveUrl(details.url) || PAGE.home();
+        createView(winState, newId, resolved);
+        winState.window.webContents.send('extension-created-tab', newId, details.url);
+        const view = winState.views.get(newId);
+        return [view?.webContents ?? null, winState.window];
+      },
+      selectTab: async (webContents, browserWindow) => {
+        const winState = windows.get(browserWindow.webContents.id);
+        if (!winState) return;
+        for (const [tabId, view] of winState.views) {
+          if (view.webContents.id === webContents.id) {
+            switchView(winState, tabId);
+            winState.window.webContents.send('shortcut', 'focus-tab-' + tabId);
+            break;
+          }
+        }
+      },
+      removeTab: async (webContents, browserWindow) => {
+        const winState = windows.get(browserWindow.webContents.id);
+        if (!winState) return;
+        for (const [tabId, view] of winState.views) {
+          if (view.webContents.id === webContents.id) {
+            closeView(winState, tabId);
+            winState.window.webContents.send('tab-closed-by-extension', tabId);
+            break;
+          }
+        }
+      },
+      windowsGetLastFocused: async () => {
+        const focused = BrowserWindow.getFocusedWindow();
+        return focused ?? [...windows.values()][0]?.window ?? null;
+      },
+      createWindow: async (details) => createWindow(false),
+      removeWindow: async (browserWindow) => browserWindow.close(),
+    });
+
+    // Load all previously installed extensions on startup
+    if (fs.existsSync(EXTENSIONS_PATH)) {
+      const extDirs = fs.readdirSync(EXTENSIONS_PATH);
+      for (const dir of extDirs) {
+        const extPath = path.join(EXTENSIONS_PATH, dir);
+        if (fs.statSync(extPath).isDirectory()) {
+          try {
+            await session.defaultSession.loadExtension(extPath, { allowFileAccess: true });
+          } catch (e) {
+            console.error('[kiyo-ext] Failed to load extension:', dir, e.message);
+          }
+        }
+      }
+    }
+  }
+
+  // Register this window with the extensions manager
+  if (extensionsManager && !isPrivate) {
+    extensionsManager.addTab(win.webContents, win);
+  }
+
   let _resizeTimer = null;
   win.on('resize', () => {
     if (_resizeTimer) clearTimeout(_resizeTimer);
@@ -311,11 +439,11 @@ function createWindow(isPrivate = false, restoredSession = null) {
           ...details.responseHeaders,
           'Content-Security-Policy': [
             "default-src 'self' file:; " +
-            "script-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; " +
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://fonts.googleapis.com chrome-extension:; " +
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
             "font-src 'self' https://fonts.gstatic.com data:; " +
             "img-src * data: blob:; " +
-            "connect-src 'self' https: wss:;",
+            "connect-src 'self' https: wss: chrome-extension:;",
           ],
         },
       });
@@ -324,18 +452,7 @@ function createWindow(isPrivate = false, restoredSession = null) {
     }
   });
 
-  // ── Permissions ───────────────────────────────────────────────────────────────
-  const ALLOWED_PERMISSIONS = new Set([
-    'media', 'geolocation', 'notifications', 'fullscreen',
-    'pointerLock', 'openExternal', 'clipboard-read', 'clipboard-sanitized-write',
-    'idle-detection', 'payment', 'midi',
-  ]);
-  win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(ALLOWED_PERMISSIONS.has(permission));
-  });
-  win.webContents.session.setPermissionCheckHandler((_wc, permission) => {
-    return ALLOWED_PERMISSIONS.has(permission);
-  });
+  // Permissions are globally managed in secureSession
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────
   win.on('close', () => {
@@ -432,6 +549,7 @@ ipcMain.handle('renderer-ready', (event) => {
 // --- IPC Registration ---
 const registerAllIPC = require('./ipc');
 const ipcContext = {
+  EXTENSIONS_PATH,
   getSettings: () => settings,
   setSetting: (key, value) => {
     settings[key] = value;
@@ -652,6 +770,10 @@ ipcMain.on('navigate', (event, url) => {
   const resolved = resolveUrl(url);
   if (!resolved) return;
 
+  if (resolved !== PAGE.reader()) {
+    readerArticles.delete(id);
+  }
+
   const currentUrl = v.webContents.getURL() || '';
   const isCurrentlyInternal = currentUrl === '' || currentUrl.startsWith('file://') || currentUrl.startsWith('kiyo://');
   const isNavigatingInternal = resolved.startsWith('file://') || resolved.startsWith('kiyo://');
@@ -694,13 +816,55 @@ ipcMain.handle('get-zoom', (event) => {
 
 ipcMain.on('go-back', (event) => {
   const winState = getWinState(event.sender);
-  const v = winState?.views.get(winState.activeViewId);
-  if (v?.webContents.canGoBack()) v.webContents.goBack();
+  if (!winState) return;
+  const tabId = winState.activeViewId;
+  const v = winState.views.get(tabId);
+  if (!v) return;
+
+  if (v.webContents.canGoBack()) {
+    v.webContents.goBack();
+  } else {
+    softwareGoBack(winState, tabId);
+  }
+  setTimeout(() => broadcastNavState(winState, tabId), 50);
 });
+
 ipcMain.on('go-forward', (event) => {
   const winState = getWinState(event.sender);
-  const v = winState?.views.get(winState.activeViewId);
-  if (v?.webContents.canGoForward()) v.webContents.goForward();
+  if (!winState) return;
+  const tabId = winState.activeViewId;
+  const v = winState.views.get(tabId);
+  if (v?.webContents.canGoForward()) {
+    v.webContents.goForward();
+  }
+  setTimeout(() => broadcastNavState(winState, tabId), 50);
+});
+
+ipcMain.on('reader-go-back', (event) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  const tabId = winState.activeViewId;
+  const article = readerArticles.get(tabId);
+  if (article && article.url) {
+    const targetUrl = article.url;
+    readerArticles.delete(tabId);
+    
+    const v = winState.views.get(tabId);
+    if (v) {
+      const isCurrentlyInternal = true;
+      const isNavigatingInternal = targetUrl.startsWith('file://') || targetUrl.startsWith('kiyo://');
+      
+      if (isCurrentlyInternal !== isNavigatingInternal) {
+        winState.window.contentView.removeChildView(v);
+        winState.views.delete(tabId);
+        viewToWindow.delete(v.webContents.id);
+        v.webContents.destroy();
+        createView(winState, tabId, targetUrl);
+      } else {
+        v.webContents.loadURL(targetUrl).catch(e => console.error('[kiyo] reader back:', e.message));
+      }
+    }
+  }
 });
 ipcMain.on('reload', (event) => {
   const winState = getWinState(event.sender);
@@ -757,6 +921,9 @@ ipcMain.handle('get-autocomplete', async (_, text) => {
 });
 
 ipcMain.handle('extract-article', async (_, tabId) => {
+  if (readerArticles.has(tabId)) {
+    return readerArticles.get(tabId);
+  }
   for (const winState of windows.values()) {
     const view = winState.views.get(tabId);
     if (view) {
@@ -764,7 +931,9 @@ ipcMain.handle('extract-article', async (_, tabId) => {
       try {
         const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML');
         const article = await extractArticle(html, url);
-        return { ...article, url, isArticle: isArticlePage(html) };
+        const result = { ...article, url };
+        readerArticles.set(tabId, result);
+        return result;
       } catch (e) {
         console.error('[kiyo] extract-article error:', e.message);
         return null;
@@ -774,13 +943,25 @@ ipcMain.handle('extract-article', async (_, tabId) => {
   return null;
 });
 
+ipcMain.handle('get-reader-article', (event) => {
+  const tabId = getTabIdByWebContents(event.sender);
+  if (!tabId) return null;
+  return readerArticles.get(tabId) || null;
+});
+
 ipcMain.handle('check-reader-mode', async (_, tabId) => {
+  if (readerArticles.has(tabId)) {
+    return readerArticles.get(tabId).isArticle;
+  }
   for (const winState of windows.values()) {
     const view = winState.views.get(tabId);
     if (view) {
       try {
         const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML');
-        return isArticlePage(html);
+        const url = view.webContents.getURL();
+        const article = await extractArticle(html, url);
+        readerArticles.set(tabId, { ...article, url });
+        return article.isArticle;
       } catch (e) {
         return false;
       }
@@ -831,6 +1012,18 @@ function getWinState(sender) {
   return windows.get(sender.id) || viewToWindow.get(sender.id);
 }
 
+function getTabIdByWebContents(wc) {
+  if (!wc) return null;
+  for (const winState of windows.values()) {
+    for (const [tabId, view] of winState.views.entries()) {
+      if (view.webContents.id === wc.id) {
+        return tabId;
+      }
+    }
+  }
+  return null;
+}
+
 function createView(winState, id, url, lazy = false) {
   const isInternal = url.startsWith('file://') || url.startsWith('kiyo://');
   const view = new WebContentsView({
@@ -844,11 +1037,49 @@ function createView(winState, id, url, lazy = false) {
       partition: winState.partitionId,
       spellcheck: true,
       enableWebSQL: isInternal,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
+      safeDialogs: true,
     },
   });
 
   winState.views.set(id, view);
   viewToWindow.set(view.webContents.id, winState);
+  pushToNavStack(id, url);
+
+  // ── Browser View Security Hardening ──────────────────────────────────────
+  // Intercept window.open calls to deny native popups and launch as regular tabs
+  view.webContents.setWindowOpenHandler((details) => {
+    const wState = viewToWindow.get(view.webContents.id);
+    if (wState && wState.window && !wState.window.isDestroyed()) {
+      const newId = newTabId();
+      wState.window.webContents.send('extension-created-tab', newId, details.url);
+    }
+    return { action: 'deny' }; // Deny original OS window generation
+  });
+
+  // Block untrusted web pages from navigating to privileged local file/internal URIs
+  view.webContents.on('will-navigate', (event, navigationUrl) => {
+    const isTargetInternal = navigationUrl.startsWith('file://') || navigationUrl.startsWith('kiyo://');
+    if (isTargetInternal && !isInternal) {
+      event.preventDefault();
+      console.warn(`[security] Blocked navigation from untrusted site to internal resource: ${navigationUrl}`);
+    }
+  });
+
+  view.webContents.on('will-redirect', (event, navigationUrl) => {
+    const isTargetInternal = navigationUrl.startsWith('file://') || navigationUrl.startsWith('kiyo://');
+    if (isTargetInternal && !isInternal) {
+      event.preventDefault();
+      console.warn(`[security] Blocked redirect from untrusted site to internal resource: ${navigationUrl}`);
+    }
+  });
+
+  // Notify extension manager of new tab (required for chrome.tabs API)
+  if (extensionsManager && !winState.isPrivate) {
+    extensionsManager.addTab(view.webContents, winState.window);
+  }
   
   if (lazy) {
     view.pendingUrl = url;
@@ -927,6 +1158,8 @@ function createView(winState, id, url, lazy = false) {
   });
 
   view.webContents.on('did-navigate', async (_, u) => {
+    pushToNavStack(id, u);
+    broadcastNavState(winState, id);
     const uiUrl = getUIUrl(u);
     winState.window.webContents.send('url-changed', id, uiUrl);
     if (winState.activeViewId === id) pushHistory(u, '', winState.isPrivate);
@@ -971,6 +1204,10 @@ function createView(winState, id, url, lazy = false) {
   });
 
   view.webContents.on('did-navigate-in-page', (_, u, isMainFrame) => {
+    if (isMainFrame) {
+      pushToNavStack(id, u);
+      broadcastNavState(winState, id);
+    }
     winState.window.webContents.send('url-changed', id, getUIUrl(u));
     if (isMainFrame && winState.activeViewId === id && !u.startsWith('file://')) {
       pushHistory(u, view.webContents.getTitle(), winState.isPrivate);
@@ -1078,6 +1315,11 @@ function switchView(winState, id) {
   }
   winState.activeViewId = id;
   const v = winState.views.get(id);
+
+  if (extensionsManager && v) {
+    extensionsManager.selectTab(v.webContents);
+  }
+
   if (v) {
     if (v.pendingUrl) {
       v.webContents.loadURL(v.pendingUrl).catch(e => console.error('[kiyo] view load:', e.message));
@@ -1086,6 +1328,7 @@ function switchView(winState, id) {
     winState.window.contentView.addChildView(v);
     updateActiveViewBounds(winState);
     winState.window.webContents.send('url-changed', id, getUIUrl(v.webContents.getURL() || v.pendingUrl || ''));
+    broadcastNavState(winState, id);
   }
 
   if (prevId && prevId !== id && winState.views.has(prevId)) {
@@ -1099,7 +1342,9 @@ function switchView(winState, id) {
 }
 
 function closeView(winState, id) {
+  readerArticles.delete(id);
   thumbnailCache.delete(id);
+  tabNavStack.delete(id);
   if (tabSleepTimers.has(id)) {
     clearTimeout(tabSleepTimers.get(id));
     tabSleepTimers.delete(id);
@@ -1113,6 +1358,9 @@ function closeView(winState, id) {
     winState.activeViewId = null;
   }
   viewToWindow.delete(v.webContents.id);
+  if (extensionsManager) {
+    extensionsManager.removeTab(v.webContents);
+  }
   v.webContents.destroy();
   winState.views.delete(id);
 }
@@ -1209,6 +1457,33 @@ function setupAdblock(sess) {
   });
 }
 
+// ─── Global Secure Session Wrapper ────────────────────────────────────────────
+const ALLOWED_PERMISSIONS = new Set([
+  'media', 'geolocation', 'notifications', 'fullscreen',
+  'pointerLock', 'openExternal', 'clipboard-read', 'clipboard-sanitized-write',
+  'idle-detection', 'payment', 'midi',
+]);
+
+function secureSession(ses) {
+  if (!ses) return;
+
+  try {
+    ses.setSpellCheckerEnabled(true);
+    ses.setSpellCheckerLanguages(['en-US']);
+  } catch {}
+
+  setupAdblock(ses);
+  setupSecureDNS(ses);
+
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  ses.setPermissionCheckHandler((_wc, permission) => {
+    return ALLOWED_PERMISSIONS.has(permission);
+  });
+}
+
+
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
@@ -1231,8 +1506,8 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  // Apply Adblock/Shield to default session too
-  setupAdblock(session.defaultSession);
+  // Apply secure global wrappers to the default session
+  secureSession(session.defaultSession);
 
   // Global audio status monitor for all active tabs
   setInterval(() => {
@@ -1251,9 +1526,10 @@ app.whenReady().then(() => {
     }
   }, 500);
 
-  // Enable Spellchecker globally
-  session.defaultSession.setSpellCheckerEnabled(true);
-  session.defaultSession.setSpellCheckerLanguages(['en-US']);
+  // Spellchecker and secure sessions are managed globally in secureSession
+  app.on('session-created', (ses) => {
+    secureSession(ses);
+  });
 
   // Local Shortcuts (Intercepted at WebContents level)
   const shortcuts = {
@@ -1288,13 +1564,45 @@ app.whenReady().then(() => {
 
   app.on('web-contents-created', (_, wc) => {
     wc.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && (input.control || input.meta)) {
-        const key = input.key.toLowerCase();
-        const winState = getWinState(wc);
-        const win = winState ? winState.window : BrowserWindow.getFocusedWindow();
-        if (win && shortcuts[key]) {
-          shortcuts[key](win, input);
-          event.preventDefault();
+      if (input.type === 'keyDown') {
+        const key = input.key;
+        
+        // Handle Alt + Left/Right arrow navigation
+        if (input.alt) {
+          const winState = getWinState(wc);
+          if (winState) {
+            const tabId = winState.activeViewId;
+            const v = winState.views.get(tabId);
+            if (v) {
+              if (key === 'ArrowLeft') {
+                event.preventDefault();
+                if (v.webContents.canGoBack()) {
+                  v.webContents.goBack();
+                } else {
+                  softwareGoBack(winState, tabId);
+                }
+                setTimeout(() => broadcastNavState(winState, tabId), 50);
+                return;
+              } else if (key === 'ArrowRight') {
+                event.preventDefault();
+                if (v.webContents.canGoForward()) {
+                  v.webContents.goForward();
+                }
+                setTimeout(() => broadcastNavState(winState, tabId), 50);
+                return;
+              }
+            }
+          }
+        }
+        
+        if (input.control || input.meta) {
+          const keyLower = key.toLowerCase();
+          const winState = getWinState(wc);
+          const win = winState ? winState.window : BrowserWindow.getFocusedWindow();
+          if (win && shortcuts[keyLower]) {
+            shortcuts[keyLower](win, input);
+            event.preventDefault();
+          }
         }
       }
     });

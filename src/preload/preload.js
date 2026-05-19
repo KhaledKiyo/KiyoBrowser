@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sleepAllTabs: () => ipcRenderer.send('sleep-all-tabs'),
   onTabAudioState: (cb) => on('tab-audio-state', (_, id, audible) => cb(id, audible)),
   toggleTabMute: (id) => ipcRenderer.send('toggle-tab-mute', id),
+  onNavState: (cb) => on('nav-state', (_, tabId, canBack, canForward) => cb(tabId, canBack, canForward)),
 
   // ── Downloads ─────────────────────────────────────────────────────────────
   onDownloadsUpdated: (cb) => on('downloads-updated', (_, downloads) => cb(downloads)),
@@ -128,6 +129,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Reader Mode ───────────────────────────────────────────────────────────
   extractArticle: (tabId) => ipcRenderer.invoke('extract-article', tabId),
   checkReaderMode: (tabId) => ipcRenderer.invoke('check-reader-mode', tabId),
+  getReaderArticle: () => ipcRenderer.invoke('get-reader-article'),
+  readerGoBack: () => ipcRenderer.send('reader-go-back'),
 
   // ── Tab Groups Settings ───────────────────────────────────────────────────
   getGroups: () => ipcRenderer.invoke('get-groups'),
@@ -135,6 +138,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteGroup: (id) => ipcRenderer.send('delete-group', id),
   onGroupUpdated: (cb) => on('group-updated', (_, id, name, color) => cb(id, name, color)),
   onGroupDeleted: (cb) => on('group-deleted', (_, id) => cb(id)),
+
+  // ── Extensions ────────────────────────────────────────────────────────────
+  extList: () => ipcRenderer.invoke('ext-list'),
+  extInstallUnpacked: (dirPath) => ipcRenderer.invoke('ext-install-unpacked', dirPath),
+  extInstallZip: (zipPath) => ipcRenderer.invoke('ext-install-zip', zipPath),
+  extRemove: (id) => ipcRenderer.invoke('ext-remove', id),
+  extOpenFileDialog: () => ipcRenderer.invoke('ext-open-file-dialog'),
+  extOpenZipDialog: () => ipcRenderer.invoke('ext-open-zip-dialog'),
+  onExtInstalled: (cb) => on('ext-installed', (_, data) => cb(data)),
+  onExtRemoved: (cb) => on('ext-removed', (_, id) => cb(id)),
+  onExtCreatedTab: (cb) => on('extension-created-tab', (_, id, url) => cb(id, url)),
 });
 
 // Submit listener to capture passwords

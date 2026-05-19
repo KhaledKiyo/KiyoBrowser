@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extensions | Kiyo</title>
+  <meta name="description" content="Manage browser extensions in Kiyo Browser">
+  <link rel="stylesheet" href="extensions.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="page-container">
+
+    <header class="page-header">
+      <h1><i data-lucide="puzzle"></i> Extensions</h1>
+      <div class="header-actions">
+        <button class="btn-secondary" id="btn-load-unpacked">
+          <i data-lucide="folder-open"></i> Load Unpacked
+        </button>
+        <button class="btn-secondary" id="btn-install-zip">
+          <i data-lucide="package"></i> Install from ZIP
+        </button>
+      </div>
+    </header>
+
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <div class="info-banner">
+      <i data-lucide="info"></i>
+      <span>Extensions run locally. Chrome Web Store .crx files are not supported — use unpacked or .zip format.</span>
+    </div>
+
+    <main id="ext-grid" class="ext-grid">
+      <!-- Populated by extensions.js -->
+    </main>
+
+  </div>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="extensions.js"></script>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

@@ -408,6 +408,13 @@ body.private-mode #private-window-btn {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.nav-cluster button:disabled {
+  color: rgba(255, 255, 255, 0.15);
+  cursor: not-allowed;
+  pointer-events: none;
+  background: transparent;
+}
+
 .url-pill {
   flex-grow: 1;
   background: rgba(255, 255, 255, 0.02);
@@ -1157,4 +1164,46 @@ body.private-mode .tab-icon svg {
 .tab.tab-sleeping {
   opacity: 0.45;
   filter: grayscale(80%);
+}
+
+/* ── Extension Toolbar ──────────────────────────────────────────────────── */
+.ext-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ext-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.ext-action-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ext-action-btn img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.ext-popup-frame {
+  position: fixed;
+  z-index: 99999;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  background: var(--bg-sidebar);
 }

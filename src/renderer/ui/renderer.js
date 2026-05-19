@@ -16,6 +16,8 @@ const menuBtn = document.getElementById('menu-btn');
 const bookmarksBtn = document.getElementById('bookmarks-btn');
 const historyBtn = document.getElementById('history-btn');
 const passwordsBtn = document.getElementById('passwords-btn');
+const extensionsBtn = document.getElementById('extensions-btn');
+const extToolbar = document.getElementById('ext-toolbar');
 const bookmarkStarBtn = document.getElementById('bookmark-star-btn');
 const autocompleteList = document.getElementById('autocomplete-list');
 const readerModeBtn = document.getElementById('reader-mode-btn');
@@ -395,7 +397,7 @@ function createTab(url = null, existingId = null, lazy = false, title = 'New Tab
   tabEl.addEventListener('auxclick', e => { if (e.button === 1) closeTab(id); });
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
 
-  tabs.set(id, { title, url, favicon, lastActive: Date.now() });
+  tabs.set(id, { title, url, favicon, lastActive: Date.now(), canBack: false, canForward: false });
   if (favicon) {
     const icon = tabEl.querySelector('.tab-icon');
     const img = document.createElement('img');
@@ -426,7 +428,14 @@ function switchTab(id) {
   sounds.play('click');
   updateRunnerPosition(id);
   const data = tabs.get(id);
-  if (data) data.lastActive = Date.now();
+  if (data) {
+    data.lastActive = Date.now();
+    backBtn.disabled = !data.canBack;
+    forwardBtn.disabled = !data.canForward;
+  } else {
+    backBtn.disabled = true;
+    forwardBtn.disabled = true;
+  }
   if (data?.favicon) extractFaviconColor(data.favicon);
   if (data?.url) updateBookmarkStar(data.url);
   updateReaderModeButton(id);
@@ -1094,6 +1103,17 @@ window.electronAPI.onLoadingStatus((id, loading) => {
   if (!loading) document.querySelector('.initial-load-placeholder')?.remove();
 });
 
+window.electronAPI.onNavState((id, canBack, canForward) => {
+  const data = tabs.get(id);
+  if (!data) return;
+  data.canBack = canBack;
+  data.canForward = canForward;
+  if (activeTabId === id) {
+    backBtn.disabled = !canBack;
+    forwardBtn.disabled = !canForward;
+  }
+});
+
 if (window.electronAPI.onTabAudioState) {
   window.electronAPI.onTabAudioState((id, audible) => {
     const tabEl = document.getElementById(`tab-${id}`);
@@ -1154,7 +1174,7 @@ window.electronAPI.onTabDuplicated((id, url) => {
   lucide.createIcons({ attrs: { "stroke-width": 2, "class": "lucide" }, nodes: [tabEl] });
   tabEl.addEventListener('click', () => switchTab(id));
   tabEl.addEventListener('contextmenu', e => { e.preventDefault(); showTabContextMenu(id, e.clientX, e.clientY); });
-  tabs.set(id, { title: 'New Tab', url, favicon: null });
+  tabs.set(id, { title: 'New Tab', url, favicon: null, canBack: false, canForward: false });
   switchTab(id);
   updateAddTabButton();
   saveSession();
@@ -1384,6 +1404,7 @@ if (noteBtn) noteBtn.addEventListener('click', () => { sounds.play('drawer'); cr
 if (bookmarksBtn) bookmarksBtn.addEventListener('click', () => { sounds.play('drawer'); window.electronAPI.navigate('bookmarks'); });
 if (historyBtn) historyBtn.addEventListener('click', () => { sounds.play('drawer'); window.electronAPI.navigate('history'); });
 if (passwordsBtn) passwordsBtn.addEventListener('click', () => { sounds.play('drawer'); window.electronAPI.navigate('passwords'); });
+if (extensionsBtn) extensionsBtn.addEventListener('click', () => { sounds.play('drawer'); createTab('kiyo://extensions'); });
 if (bookmarkStarBtn) bookmarkStarBtn.addEventListener('click', toggleBookmark);
 if (readerModeBtn) readerModeBtn.addEventListener('click', () => { sounds.play('paper'); triggerReaderMode(); });
 
@@ -1406,7 +1427,6 @@ async function triggerReaderMode() {
   try {
     const article = await window.electronAPI.extractArticle(activeTabId);
     if (article) {
-      sessionStorage.setItem('kiyo_reader_data', JSON.stringify(article));
       window.electronAPI.navigate('kiyo://reader');
     } else {
       showToast('Could not extract article content.', 'error');
@@ -1595,4 +1615,33 @@ function selectTabSearchResult(index) {
   }
   updateAddTabButton();
   document.querySelector('.initial-load-placeholder')?.remove();
+
+  // ── Extensions Toolbar ────────────────────────────────────────────────────
+  refreshExtensionToolbar();
+  window.electronAPI.onExtInstalled(() => refreshExtensionToolbar());
+  window.electronAPI.onExtRemoved(() => refreshExtensionToolbar());
+  window.electronAPI.onExtCreatedTab((id, url) => {
+    if (!tabs.has(id)) createTab(url, id);
+  });
 })();
+
+async function refreshExtensionToolbar() {
+  if (!extToolbar) return;
+  const exts = await window.electronAPI.extList();
+  extToolbar.innerHTML = '';
+  exts.forEach(ext => {
+    if (!ext.iconUrl) return;
+    const btn = document.createElement('button');
+    btn.className = 'ext-action-btn';
+    btn.title = ext.name;
+    btn.dataset.extId = ext.id;
+    const img = document.createElement('img');
+    img.src = ext.iconUrl;
+    img.onerror = () => btn.remove();
+    btn.appendChild(img);
+    btn.addEventListener('click', () => {
+      sounds.play('click');
+    });
+    extToolbar.appendChild(btn);
+  });
+}

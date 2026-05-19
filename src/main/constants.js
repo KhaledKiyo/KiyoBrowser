@@ -15,6 +15,7 @@ const PAGE_ALIASES = Object.freeze({
   READER:    'reader',
   PASSWORDS: 'passwords',
   WELCOME:   'welcome',
+  EXTENSIONS:'extensions',
 });
 
 const SEARCH_ENGINES = Object.freeze({
