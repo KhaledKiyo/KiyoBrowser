@@ -10,6 +10,7 @@ const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 let stats = { blocked: 0 };
 const exactDomains = new Set();
 const stringMatches = [];
+const ruleIndex = new Map();
 
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
@@ -47,9 +48,12 @@ function parseRuleLine(line) {
     }
   }
 
-  let cleaned = rule.replace(/^[|*]+/, '').replace(/[|*^]+$/, '');
+  let cleaned = rule.replace(/^[|*]+/, '').replace(/[|*^]+$/, '').toLowerCase();
   if (cleaned.length > 3) {
-    stringMatches.push(cleaned.toLowerCase());
+    stringMatches.push(cleaned);
+    const prefix = cleaned.substring(0, 3);
+    if (!ruleIndex.has(prefix)) ruleIndex.set(prefix, []);
+    ruleIndex.get(prefix).push(cleaned);
   }
 }
 
@@ -63,7 +67,12 @@ const BUILTIN_PATTERNS = [
   '/pagead.js', '/widget/ads.', '/ads.js', '/ad.js',
 ];
 for (const d of BUILTIN_EXACT_DOMAINS) exactDomains.add(d);
-for (const p of BUILTIN_PATTERNS) stringMatches.push(p);
+for (const p of BUILTIN_PATTERNS) {
+  stringMatches.push(p);
+  const prefix = p.substring(0, 3);
+  if (!ruleIndex.has(prefix)) ruleIndex.set(prefix, []);
+  ruleIndex.get(prefix).push(p);
+}
 
 
 function loadRules(filePath) {
@@ -111,7 +120,7 @@ async function initAdblock() {
     checkAndUpdate(easyprivacyPath, EASYPRIVACY_URL)
   ]);
   
-  console.log(`[adblock] Loaded ${exactDomains.size} domains and ${stringMatches.length} patterns.`);
+  console.log(`[adblock] Loaded ${exactDomains.size} domains and ${stringMatches.length} patterns across ${ruleIndex.size} trigram buckets.`);
 }
 
 function getRootDomain(hostname) {
@@ -132,9 +141,20 @@ function shouldBlock(urlStr, resourceType) {
     }
 
     const urlLower = urlStr.toLowerCase();
-    for (const pattern of stringMatches) {
-      if (urlLower.includes(pattern)) {
-        return true;
+    const len = urlLower.length;
+    if (len < 4) return false;
+
+    const checkedPrefixes = new Set();
+    for (let i = 0; i <= len - 3; i++) {
+      const trigram = urlLower.substring(i, i + 3);
+      if (checkedPrefixes.has(trigram)) continue;
+      checkedPrefixes.add(trigram);
+
+      const bucket = ruleIndex.get(trigram);
+      if (bucket) {
+        for (let j = 0; j < bucket.length; j++) {
+          if (urlLower.includes(bucket[j])) return true;
+        }
       }
     }
 

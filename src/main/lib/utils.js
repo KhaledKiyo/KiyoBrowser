@@ -8,8 +8,15 @@ function readJSON(filePath, fallback) {
 }
 
 function writeJSON(filePath, data) {
-  fs.writeFile(filePath, JSON.stringify(data, null, 2), err => {
-    if (err) console.error('[kiyo-utils] write failed:', filePath, err.message);
+  const tmpPath = filePath + '.tmp';
+  fs.writeFile(tmpPath, JSON.stringify(data, null, 2), err => {
+    if (err) {
+      console.error('[kiyo-utils] write failed:', tmpPath, err.message);
+      return;
+    }
+    fs.rename(tmpPath, filePath, err => {
+      if (err) console.error('[kiyo-utils] rename failed:', filePath, err.message);
+    });
   });
 }
 

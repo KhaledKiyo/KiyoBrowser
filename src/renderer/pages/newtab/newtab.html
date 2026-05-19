@@ -86,10 +86,19 @@
     // ── Clock + Greeting ───────────────────────────────────────────────────────
     function updateClock() {
       const now = new Date();
-      const h = now.getHours();
+      const is24h = window._kiyoSettings?.timeFormat === '24h';
+      let h = now.getHours();
+      const m = String(now.getMinutes()).padStart(2, '0');
+      let ampm = '';
+      if (!is24h) {
+        ampm = h >= 12 ? ' PM' : ' AM';
+        h = h % 12;
+        if (h === 0) h = 12;
+      }
       const pad = n => String(n).padStart(2, '0');
-      document.getElementById('clock').textContent = `${pad(h)}:${pad(now.getMinutes())}`;
-      const greet = h < 5 ? 'Burning the midnight oil.' : h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : h < 21 ? 'Good evening.' : 'Night owl mode.';
+      document.getElementById('clock').textContent = `${pad(h)}:${m}${ampm}`;
+      const origH = now.getHours();
+      const greet = origH < 5 ? 'Burning the midnight oil.' : origH < 12 ? 'Good morning.' : origH < 17 ? 'Good afternoon.' : origH < 21 ? 'Good evening.' : 'Night owl mode.';
       document.getElementById('greeting').textContent = greet;
     }
     setInterval(updateClock, 1000);
@@ -292,10 +301,20 @@
         if (cached && expiry && Date.now() < Number(expiry)) {
           weatherData = JSON.parse(cached);
         } else {
-          const ipResponse = await fetch('https://ipapi.co/json/');
-          if (!ipResponse.ok) throw new Error('Location fetch failed');
-          const loc = await ipResponse.json();
-          const city = loc ? loc.city : 'London';
+          let city = 'London';
+          try {
+            const ipResponse = await fetch('https://ipapi.co/json/');
+            if (!ipResponse.ok) throw new Error('Primary IP API failed');
+            const loc = await ipResponse.json();
+            if (loc && loc.city) city = loc.city;
+          } catch (err) {
+            console.warn('Primary IP API failed, trying fallback...', err);
+            const fallbackResponse = await fetch('https://ipwho.is/');
+            if (fallbackResponse.ok) {
+              const fallbackLoc = await fallbackResponse.json();
+              if (fallbackLoc && fallbackLoc.city) city = fallbackLoc.city;
+            }
+          }
 
           const weatherResponse = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
           if (!weatherResponse.ok) throw new Error('Weather fetch failed');

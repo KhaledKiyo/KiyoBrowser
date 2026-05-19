@@ -59,7 +59,8 @@
         let allHistory = [];
 
         function formatTime(ts) {
-            return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const is24h = window._kiyoSettings?.timeFormat === '24h';
+            return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !is24h });
         }
 
         function getGroupLabel(ts) {

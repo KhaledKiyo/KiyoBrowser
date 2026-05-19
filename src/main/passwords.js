@@ -140,7 +140,9 @@ class PasswordManager {
       tag: tag.toString('hex'),
       data: encrypted
     };
-    await fs.writeFile(this.filePath, JSON.stringify(fileData), 'utf8');
+    const tmpPath = this.filePath + '.tmp';
+    await fs.writeFile(tmpPath, JSON.stringify(fileData), 'utf8');
+    await fs.rename(tmpPath, this.filePath);
   }
 
   _decrypt(fileData, key) {

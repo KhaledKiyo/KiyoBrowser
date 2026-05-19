@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeTab: (id) => ipcRenderer.send('close-tab', id),
   duplicateTab: (id) => ipcRenderer.send('duplicate-tab', id),
   showTabMenu: (id, currentGroupId, groupsList) => ipcRenderer.send('show-tab-menu', id, currentGroupId, groupsList),
+  getTabPreview: (tabId) => ipcRenderer.invoke('get-tab-preview', tabId),
 
   // ── Navigation ────────────────────────────────────────────────────────────
   navigate: (url) => ipcRenderer.send('navigate', url),
@@ -44,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   wakeTab: (id) => ipcRenderer.send('wake-tab', id),
   sleepTabNow: (id) => ipcRenderer.send('sleep-tab-now', id),
   sleepAllTabs: () => ipcRenderer.send('sleep-all-tabs'),
+  onTabAudioState: (cb) => on('tab-audio-state', (_, id, audible) => cb(id, audible)),
+  toggleTabMute: (id) => ipcRenderer.send('toggle-tab-mute', id),
 
   // ── Downloads ─────────────────────────────────────────────────────────────
   onDownloadsUpdated: (cb) => on('downloads-updated', (_, downloads) => cb(downloads)),
@@ -121,6 +124,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Reader Mode ───────────────────────────────────────────────────────────
   extractArticle: (tabId) => ipcRenderer.invoke('extract-article', tabId),
   checkReaderMode: (tabId) => ipcRenderer.invoke('check-reader-mode', tabId),
+
+  // ── Tab Groups Settings ───────────────────────────────────────────────────
+  getGroups: () => ipcRenderer.invoke('get-groups'),
+  updateGroup: (id, name, color) => ipcRenderer.send('update-group', id, name, color),
+  deleteGroup: (id) => ipcRenderer.send('delete-group', id),
+  onGroupUpdated: (cb) => on('group-updated', (_, id, name, color) => cb(id, name, color)),
+  onGroupDeleted: (cb) => on('group-deleted', (_, id) => cb(id)),
 });
 
 // Submit listener to capture passwords

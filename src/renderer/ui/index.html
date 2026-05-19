@@ -15,32 +15,38 @@
 <body>
   <div class="browser-container">
     <aside class="browser-sidebar">
+      <div class="sidebar-spotlight" id="sidebar-spotlight"></div>
       <div class="sidebar-top">
         <div class="logo">K</div>
+        <button class="new-tab-top-btn" id="add-tab-btn" title="New Tab (Ctrl+T)"><i data-lucide="plus"></i></button>
       </div>
 
       <div class="tabs-list" id="tabs-bar">
+        <div class="active-tab-runner" id="active-tab-runner"></div>
         <!-- Vertical tabs injected by renderer.js -->
       </div>
 
       <div class="sidebar-bottom">
-        <button class="side-btn" id="add-tab-btn" title="New Tab (Ctrl+T)"><i data-lucide="plus"></i></button>
-        <button class="side-btn" id="private-window-btn" title="New Private Window (Ctrl+Shift+N)"><i data-lucide="shield"></i></button>
-        <button class="side-btn" id="note-btn" title="Kiyo Note"><i data-lucide="edit-3"></i></button>
-        <button class="side-btn" id="bookmarks-btn" title="Bookmarks (Ctrl+B)"><i data-lucide="bookmark"></i></button>
-        <button class="side-btn" id="history-btn" title="History (Ctrl+H)"><i data-lucide="clock"></i></button>
-        <button class="side-btn" id="passwords-btn" title="Passwords (Ctrl+Shift+P)"><i data-lucide="key"></i></button>
-        <button class="side-btn" id="groups-btn" title="Tab Groups"><i data-lucide="layers"></i></button>
-        <button class="side-btn" id="downloads-toggle" title="Downloads (Ctrl+Shift+J)">
-          <i data-lucide="download"></i>
-          <span class="badge" id="download-badge" style="display: none;"></span>
-        </button>
-        <button class="side-btn" id="menu-btn" title="Settings (Ctrl+,)"><i data-lucide="command"></i></button>
+        <div class="sidebar-tools-grid">
+          <button class="mini-tool-btn" id="private-window-btn" title="New Private Window (Ctrl+Shift+N)"><i data-lucide="shield"></i></button>
+          <button class="mini-tool-btn" id="note-btn" title="Kiyo Note"><i data-lucide="edit-3"></i></button>
+          <button class="mini-tool-btn" id="bookmarks-btn" title="Bookmarks (Ctrl+B)"><i data-lucide="bookmark"></i></button>
+          <button class="mini-tool-btn" id="history-btn" title="History (Ctrl+H)"><i data-lucide="clock"></i></button>
+          <button class="mini-tool-btn" id="passwords-btn" title="Passwords (Ctrl+Shift+P)"><i data-lucide="key"></i></button>
+          <button class="mini-tool-btn" id="downloads-toggle" title="Downloads (Ctrl+Shift+J)">
+            <i data-lucide="download"></i>
+            <span class="badge" id="download-badge" style="display: none;"></span>
+          </button>
+        </div>
+        <div class="sidebar-footer" style="display:flex; gap:8px; justify-content:center; width:100%;">
+          <button class="settings-btn" id="menu-btn" title="Settings (Ctrl+,)"><i data-lucide="command"></i></button>
+        </div>
       </div>
     </aside>
 
     <div class="browser-main">
       <header class="floating-header">
+        <div class="header-ambient-glow" id="header-ambient-glow"></div>
         <div class="nav-cluster">
           <button id="back-btn" title="Back (Alt+Left)"><i data-lucide="arrow-left"></i></button>
           <button id="forward-btn" title="Forward (Alt+Right)"><i data-lucide="arrow-right"></i></button>
@@ -82,13 +88,7 @@
     </div>
   </div>
 
-  <div id="groups-panel" class="groups-panel" style="display: none;">
-    <div class="groups-header">Tab Groups <button id="close-groups" class="close-btn"><i data-lucide="x"></i></button></div>
-    <div id="groups-list" class="groups-list"></div>
-    <div class="new-group-row">
-      <button id="new-group-btn" class="new-group-btn"><i data-lucide="plus"></i> New Group</button>
-    </div>
-  </div>
+
 
   <div id="tab-search-overlay" class="tab-search-overlay" style="display: none;">
     <div class="tab-search-box">
@@ -101,17 +101,16 @@
   <div id="tab-tooltip" class="tab-tooltip" style="display:none">
     <div class="tt-title"></div>
     <div class="tt-url"></div>
+    <img class="tt-preview" id="tt-preview" style="display:none" />
   </div>
 
   <!-- Custom input dialog (replaces window.prompt which is disabled in Electron sandbox) -->
-  <div id="kiyo-dialog-overlay" style="display:none;position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
-    <div style="background:#13151f;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:28px 32px;min-width:320px;box-shadow:0 24px 64px rgba(0,0,0,0.7);font-family:Inter,sans-serif;">
-      <div id="kiyo-dialog-label" style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:14px;"></div>
-      <input id="kiyo-dialog-input" type="text" style="width:100%;box-sizing:border-box;background:#0d0e18;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px 14px;font-size:14px;color:#e6edf3;outline:none;font-family:inherit;" placeholder="">
-      <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
-        <button id="kiyo-dialog-cancel" style="padding:8px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#8b949e;font-size:13px;cursor:pointer;font-family:inherit;">Cancel</button>
-        <button id="kiyo-dialog-ok" style="padding:8px 18px;border-radius:8px;border:none;background:var(--arch-blue,#58a6ff);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>
-      </div>
+  <div id="kiyo-dialog-overlay" style="display:none;position:fixed;top:0;left:var(--sidebar-width);right:0;height:var(--header-height);z-index:999999;background:var(--bg-header);backdrop-filter:blur(var(--header-blur));align-items:center;padding:0 24px;gap:16px;border-bottom:1px solid var(--border-color);box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+    <div id="kiyo-dialog-label" style="font-size:14px;font-weight:600;color:var(--text-main);white-space:nowrap;"></div>
+    <input id="kiyo-dialog-input" type="text" style="flex-grow:1;background:rgba(255,255,255,0.05);border:1px solid var(--border-color);border-radius:8px;padding:8px 14px;font-size:13px;color:var(--text-main);outline:none;font-family:inherit;min-width:0;" placeholder="">
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button id="kiyo-dialog-cancel" style="padding:6px 14px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.2s;">Cancel</button>
+      <button id="kiyo-dialog-ok" style="padding:6px 14px;border-radius:8px;border:none;background:var(--arch-blue);color:#000;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all 0.2s;">OK</button>
     </div>
   </div>
 

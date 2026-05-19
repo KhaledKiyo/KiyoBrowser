@@ -363,57 +363,49 @@ function warmCnameLookup(hostname) {
 
 // ─── Core Engine ─────────────────────────────────────────────────────────────
 
-function setupPrivacyShield(sess, options = {}) {
-  const { enableCnameHeuristic = true, enableCosmeticFiltering = true } = options;
+function setupPrivacyShield() {
+  // No-op: Network interception is now unified and orchestrated in setupAdblock
+}
 
-  sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-    const url = details.url;
-    if (url.startsWith('kiyo://') || url.startsWith('file://')) return callback({ cancel: false });
+function evaluatePrivacyShield(url, details, options = {}) {
+  const { enableCnameHeuristic = true } = options;
+  const cleanUrl = stripTrackingParams(url);
+  if (cleanUrl) return { redirectURL: cleanUrl };
 
-    // Strip tracking parameters before any other check
-    const cleanUrl = stripTrackingParams(url);
-    if (cleanUrl) return callback({ redirectURL: cleanUrl });
-    try {
-      const parsedUrl = new URL(url);
-      const hostname = normalizeHostname(parsedUrl.hostname);
-      const resourceType = details.resourceType;
-      const initiator = details.initiator;
-      if (!hostname) return callback({ cancel: false });
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = normalizeHostname(parsedUrl.hostname);
+    const resourceType = details.resourceType;
+    const initiator = details.initiator;
+    if (!hostname) return { cancel: false };
 
-      if (isDomainBlocked(hostname)) {
-        if (isFirstParty(parsedUrl, initiator) && SAFE_FIRST_PARTY_TYPES.has(resourceType)) return callback({ cancel: false });
-        console.log('[SHIELD] Blocked domain:', hostname, 'URL:', url);
-        return callback({ cancel: true });
-      }
-
-      if (enableCnameHeuristic && !isFirstParty(parsedUrl, initiator)) {
-        warmCnameLookup(hostname);
-        if (CNAME_CACHE.get(hostname) === true) {
-          console.log('[SHIELD] Blocked CNAME:', hostname, 'URL:', url);
-          return callback({ cancel: true });
-        }
-      }
-
-      if (HIGH_RISK_RESOURCES.has(resourceType)) {
-        // Never pattern-block first-party requests from trusted media sites
-        // (YouTube internal URLs can contain '/ads/' in ad-skipping signal paths)
-        const isYouTube = hostname.endsWith('youtube.com') || hostname.endsWith('youtu.be')
-          || hostname.endsWith('googlevideo.com') || hostname.endsWith('ytimg.com')
-          || hostname.endsWith('ggpht.com');
-        if (!isYouTube || !isFirstParty(parsedUrl, initiator)) {
-          const lowerUrl = url.toLowerCase();
-          if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || BLOCKED_PATTERNS_REGEX.some(re => re.test(url))) {
-            console.log('[SHIELD] Blocked pattern:', 'URL:', url);
-            return callback({ cancel: true });
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[SHIELD] Error evaluating URL:', url, e.message);
+    if (isDomainBlocked(hostname)) {
+      if (isFirstParty(parsedUrl, initiator) && SAFE_FIRST_PARTY_TYPES.has(resourceType)) return { cancel: false };
+      return { cancel: true };
     }
-    callback({ cancel: false });
-  });
 
+    if (enableCnameHeuristic && !isFirstParty(parsedUrl, initiator)) {
+      warmCnameLookup(hostname);
+      if (CNAME_CACHE.get(hostname) === true) {
+        return { cancel: true };
+      }
+    }
+
+    if (HIGH_RISK_RESOURCES.has(resourceType)) {
+      const isYouTube = hostname.endsWith('youtube.com') || hostname.endsWith('youtu.be')
+        || hostname.endsWith('googlevideo.com') || hostname.endsWith('ytimg.com')
+        || hostname.endsWith('ggpht.com');
+      if (!isYouTube || !isFirstParty(parsedUrl, initiator)) {
+        const lowerUrl = url.toLowerCase();
+        if (FAST_PATTERNS.some(p => lowerUrl.includes(p)) || BLOCKED_PATTERNS_REGEX.some(re => re.test(url))) {
+          return { cancel: true };
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore URL parse errors
+  }
+  return { cancel: false };
 }
 
 async function applyCosmeticFilters(webContents) {
@@ -444,4 +436,4 @@ function bindCosmeticFilters(webContents) {
   webContents.once('destroyed', () => { COSMETIC_KEY_BY_WEBCONTENTS.delete(webContents); });
 }
 
-module.exports = { setupPrivacyShield, applyCosmeticFilters, bindCosmeticFilters, isDomainBlocked, isFirstParty };
+module.exports = { setupPrivacyShield, evaluatePrivacyShield, applyCosmeticFilters, bindCosmeticFilters, isDomainBlocked, isFirstParty };

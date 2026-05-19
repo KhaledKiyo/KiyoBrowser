@@ -109,6 +109,43 @@ body {
   color: var(--text-dim);
 }
 
+/* Custom Text Input */
+.settings-input {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 12px;
+  width: 250px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.settings-input:focus,
+.settings-input:hover {
+  border-color: var(--arch-blue);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.settings-input:focus {
+  box-shadow: 0 0 15px rgba(0, 210, 255, 0.15);
+}
+
+/* Custom Color Picker */
+input[type="color"] {
+  -webkit-appearance: none;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: transparent;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: 1px solid var(--border-color); border-radius: 12px; }
+
 /* Custom Dropdown */
 .custom-select-wrapper {
   position: relative;

@@ -52,7 +52,7 @@
  *    strictHttps, tabSleepEnabled, tabSleepDelay, geometry.
  * ============================================================
  */
-const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, Menu, globalShortcut, shell, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -110,6 +110,7 @@ const pendingCredentials = new Map(); // wc.id -> { domain, username, password }
 
 const tabSleepTimers = new Map(); // tabId → setTimeout handle
 const sleepedTabs = new Map();    // tabId → { url, title, favicon } (sleeping tabs have no view)
+const thumbnailCache = new Map(); // tabId → dataURL
 const TAB_SLEEP_DELAY = 30 * 60 * 1000; // 30 minutes default, configurable
 
 const SETTINGS_DEFAULTS = {
@@ -123,6 +124,23 @@ const SETTINGS_DEFAULTS = {
   adblockEnabled: true,
   blockHyperlinkAuditing: true,
   strictHttps: false,
+  timeFormat: '12h',
+  startupUrl: 'kiyo://welcome',
+  downloadsPathPrompt: false,
+  customAccentColor: '#00d2ff',
+  sidebarPosition: 'left',
+  compactUi: false,
+  uiFontFamily: 'Inter',
+  startupMode: 'session',
+  autoWipeHistory: false,
+  autoWipeCookies: false,
+  autoWipeCache: false,
+  secureDns: 'default',
+  tabSleepingWhitelist: '',
+  batterySaver: true,
+  diskCacheCap: 500,
+  tabCloseFocus: 'right',
+  uiSoundsEnabled: true,
 };
 
 const SETTING_SCHEMA = {
@@ -136,6 +154,23 @@ const SETTING_SCHEMA = {
   adblockEnabled: v => typeof v === 'boolean',
   blockHyperlinkAuditing: v => typeof v === 'boolean',
   strictHttps: v => typeof v === 'boolean',
+  timeFormat: v => ['12h', '24h'].includes(v),
+  startupUrl: v => typeof v === 'string',
+  downloadsPathPrompt: v => typeof v === 'boolean',
+  customAccentColor: v => typeof v === 'string' && /^#[0-9A-Fa-f]{6}$/.test(v),
+  sidebarPosition: v => ['left', 'right'].includes(v),
+  compactUi: v => typeof v === 'boolean',
+  uiFontFamily: v => ['Inter', 'JetBrains Mono', 'System'].includes(v),
+  startupMode: v => ['newtab', 'session', 'url'].includes(v),
+  autoWipeHistory: v => typeof v === 'boolean',
+  autoWipeCookies: v => typeof v === 'boolean',
+  autoWipeCache: v => typeof v === 'boolean',
+  secureDns: v => ['default', 'cloudflare', 'quad9', 'google'].includes(v),
+  tabSleepingWhitelist: v => typeof v === 'string',
+  batterySaver: v => typeof v === 'boolean',
+  diskCacheCap: v => typeof v === 'number' && v >= 50 && v <= 2000,
+  tabCloseFocus: v => ['right', 'last'].includes(v),
+  uiSoundsEnabled: v => typeof v === 'boolean',
 };
 
 let settings = { ...SETTINGS_DEFAULTS };
@@ -241,8 +276,11 @@ function createWindow(isPrivate = false, restoredSession = null) {
   });
 
   // Apply Ad Blocker to this window's session
-  setupPrivacyShield(win.webContents.session);
   setupAdblock(win.webContents.session);
+  setupSecureDNS(win.webContents.session);
+  try {
+    win.webContents.session.setCacheSize(settings.diskCacheCap * 1024 * 1024);
+  } catch {}
   bindCosmeticFilters(win.webContents);
 
   // Ensure spellchecker is enabled for the session (especially for private partitions)
@@ -303,18 +341,35 @@ function createWindow(isPrivate = false, restoredSession = null) {
   win.on('close', () => {
     if (isPrivate) PrivateSessionManager.decrement();
     if (!isPrivate) {
-      const sessionTabs = [];
-      for (const [tabId, view] of winState.views) {
-        try {
-          if (!view.webContents.isDestroyed()) {
-            sessionTabs.push({ id: tabId, url: view.webContents.getURL() || 'home' });
-          }
-        } catch { }
-      }
-      if (sessionTabs.length > 0) {
-        writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId: winState.activeViewId });
+      if (winState.lastSession) {
+        writeJSON(SESSION_PATH, winState.lastSession);
+      } else {
+        const sessionTabs = [];
+        for (const [tabId, view] of winState.views) {
+          try {
+            if (!view.webContents.isDestroyed()) {
+              sessionTabs.push({ id: tabId, url: view.webContents.getURL() || 'home' });
+            }
+          } catch { }
+        }
+        if (sessionTabs.length > 0) {
+          writeJSON(SESSION_PATH, { tabs: sessionTabs, activeTabId: winState.activeViewId });
+        }
       }
     }
+
+    if (settings.autoWipeHistory) {
+      history = [];
+      saveHistory();
+    }
+    try {
+      const options = { storages: [] };
+      if (settings.autoWipeCookies) options.storages.push('cookies');
+      if (settings.autoWipeCache) options.storages.push('caches');
+      if (options.storages.length > 0) {
+        win.webContents.session.clearStorageData(options);
+      }
+    } catch {}
     
     // Explicitly destroy views
     for (const view of winState.views.values()) {
@@ -327,6 +382,9 @@ function createWindow(isPrivate = false, restoredSession = null) {
   // ── Download tracking ────────────────────────────────────────────────────────
   win.webContents.session.on('will-download', (_, item) => {
     if (isPrivate) return; 
+    if (!settings.downloadsPathPrompt) {
+      item.setSavePath(path.join(app.getPath('downloads'), item.getFilename()));
+    }
     const name = item.getFilename();
     if (downloads.length >= MAX_DOWNLOADS_HISTORY) downloads.splice(0, 1);
     const obj = { name, progress: 0, state: 'progressing', startedAt: Date.now() };
@@ -371,52 +429,47 @@ ipcMain.handle('renderer-ready', (event) => {
   };
 });
 
-ipcMain.handle('get-settings', () => settings);
-
-ipcMain.handle('get-adblock-stats', () => adblock.getStats());
-ipcMain.on('toggle-adblock', (_, enabled) => {
-  settings.adblockEnabled = enabled;
-  saveSettings();
-});
-ipcMain.on('reset-adblock-stats', () => adblock.resetStats());
-
-ipcMain.handle('get-browser-stats', () => {
-  let totalTabs = 0;
-  for (const winState of windows.values()) {
-    totalTabs += winState.views.size;
+// --- IPC Registration ---
+const registerAllIPC = require('./ipc');
+const ipcContext = {
+  getSettings: () => settings,
+  setSetting: (key, value) => {
+    settings[key] = value;
+    if (key === 'compactUi' || key === 'sidebarPosition') {
+      for (const winState of windows.values()) updateActiveViewBounds(winState);
+    }
+  },
+  validateSetting: (key, value) => SETTING_SCHEMA[key] && SETTING_SCHEMA[key](value),
+  saveSettings,
+  adblock,
+  getSleepStats: () => {
+    let activeCount = 0;
+    for (const winState of windows.values()) {
+      activeCount += winState.views.size;
+    }
+    return { sleeping: sleepedTabs.size, active: activeCount };
+  },
+  windows,
+  getBookmarks: () => bookmarks,
+  setBookmarks: (val) => { bookmarks = val; },
+  getHistory: () => history,
+  setHistory: (val) => { history = val; },
+  MAX_BOOKMARKS,
+  saveBookmarks,
+  saveHistory,
+  pwManager,
+  pendingCredentials,
+  broadcast,
+  finishOnboarding: () => {
+    writeJSON(path.join(USER_DATA, 'kiyo-onboarded.json'), { onboarded: true, date: Date.now() });
+  },
+  getViewByTabId: (sender, tabId) => {
+    const winState = getWinState(sender);
+    return winState ? winState.views.get(tabId) : null;
   }
-  return {
-    tabs: totalTabs,
-    bookmarks: bookmarks.length,
-    history: history.length
-  };
-});
-
-ipcMain.on('finish-onboarding', () => {
-  writeJSON(path.join(USER_DATA, 'kiyo-onboarded.json'), { onboarded: true, date: Date.now() });
-});
-
-ipcMain.on('update-setting', async (event, key, value) => {
-  if (!SETTING_SCHEMA[key] || !SETTING_SCHEMA[key](value)) return;
-
-  if (key === 'theme' && value !== 'default') {
-    const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
-    const themeFiles = fs.readdirSync(themesPath)
-      .filter(f => f.endsWith('.css'))
-      .map(f => f.replace('.css', ''));
-    
-    // Also check subdirectories for themes (as mentioned in tasks.md)
-    const subDirs = fs.readdirSync(themesPath, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
-    
-    if (!themeFiles.includes(value) && !subDirs.includes(value)) return;
-  }
-
-  settings[key] = value;
-  saveSettings();
-  broadcast('theme-updated', settings);
-});
+};
+registerAllIPC(ipcMain, ipcContext);
+// ------------------------
 
 ipcMain.on('update-geometry', (event, geometry) => {
   const winState = getWinState(event.sender);
@@ -433,13 +486,7 @@ ipcMain.on('clear-downloads', () => {
   broadcast('downloads-cleared');
 });
 
-ipcMain.handle('get-sleep-stats', () => {
-  let activeCount = 0;
-  for (const winState of windows.values()) {
-    activeCount += winState.views.size;
-  }
-  return { sleeping: sleepedTabs.size, active: activeCount };
-});
+
 
 ipcMain.on('wake-tab', (event, id) => {
   const winState = getWinState(event.sender);
@@ -459,52 +506,9 @@ ipcMain.on('sleep-all-tabs', (event) => {
   }
 });
 
-ipcMain.handle('get-bookmarks', () => bookmarks);
-ipcMain.on('add-bookmark', (_, bookmark) => {
-  if (!bookmark || typeof bookmark.url !== 'string') return;
-  if (bookmarks.some(b => b.url === bookmark.url)) return;
-  if (bookmarks.length >= MAX_BOOKMARKS) bookmarks.pop();
-  bookmarks.unshift({ url: bookmark.url, title: bookmark.title || bookmark.url, addedAt: Date.now() });
-  saveBookmarks();
-  broadcast('bookmarks-updated', bookmarks);
-});
-ipcMain.on('remove-bookmark', (_, url) => {
-  const before = bookmarks.length;
-  bookmarks = bookmarks.filter(b => b.url !== url);
-  if (bookmarks.length !== before) {
-    saveBookmarks();
-    broadcast('bookmarks-updated', bookmarks);
-  }
-});
-ipcMain.handle('is-bookmarked', (_, url) => bookmarks.some(b => b.url === url));
 
-ipcMain.handle('get-history', () => history);
-ipcMain.on('clear-history', () => {
-  history = [];
-  saveHistory();
-  broadcast('history-updated');
-});
-ipcMain.on('remove-history-entry', (_, url) => {
-  const before = history.length;
-  history = history.filter(h => h.url !== url);
-  if (history.length !== before) {
-    saveHistory();
-    broadcast('history-updated');
-  }
-});
 
-ipcMain.handle('get-available-themes', () => {
-  const themesPath = path.join(__dirname, '..', 'renderer', 'themes');
-  if (!fs.existsSync(themesPath)) return [];
-  const results = [];
-  for (const entry of fs.readdirSync(themesPath, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith('.css')) {
-      const name = entry.name.replace('.css', '');
-      results.push({ id: name, name: name.charAt(0).toUpperCase() + name.slice(1) });
-    }
-  }
-  return results;
-});
+
 
 ipcMain.handle('get-quick-links', () => readJSON(QUICKLINKS_PATH, null));
 ipcMain.on('save-quick-links', (_, links) => writeJSON(QUICKLINKS_PATH, links));
@@ -553,6 +557,16 @@ ipcMain.on('show-tab-menu', (event, id, currentGroupId, groupsList) => {
   const addGroupSubmenu = [
     { label: 'New Group...', click: () => winState?.window.webContents.send('tab-menu-action', id, 'new-group') }
   ];
+
+ipcMain.on('toggle-tab-mute', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  const v = winState.views.get(id);
+  if (v && v.webContents && !v.webContents.isDestroyed()) {
+    const isMuted = v.webContents.isAudioMuted();
+    v.webContents.setAudioMuted(!isMuted);
+  }
+});
 
   if (groupsList && groupsList.length > 0) {
     addGroupSubmenu.push({ type: 'separator' });
@@ -700,6 +714,7 @@ const saveSessionDebounced = debounce((data) => writeJSON(SESSION_PATH, data), 5
 ipcMain.on('save-session', (event, sessionData) => {
   const winState = getWinState(event.sender);
   if (winState && !winState.isPrivate) {
+    winState.lastSession = sessionData;
     saveSessionDebounced(sessionData);
   }
 });
@@ -775,41 +790,29 @@ ipcMain.handle('check-reader-mode', async (_, tabId) => {
   return false;
 });
 
-ipcMain.handle('pw-is-setup', () => pwManager.isSetup());
-ipcMain.handle('pw-is-unlocked', () => pwManager.isUnlocked());
-ipcMain.handle('pw-setup', (_, pass) => pwManager.setMasterPassword(pass));
-ipcMain.handle('pw-unlock', (_, pass) => pwManager.unlock(pass));
-ipcMain.on('pw-lock', () => pwManager.lock());
-ipcMain.handle('pw-save', (_, domain, username, password) => pwManager.save(domain, username, password));
-ipcMain.handle('pw-get', (_, domain) => pwManager.get(domain));
-ipcMain.handle('pw-get-all', () => pwManager.getAll());
-ipcMain.handle('pw-delete', (_, domain, username) => pwManager.delete(domain, username));
-ipcMain.handle('pw-search', (_, q) => pwManager.search(q));
-
-ipcMain.on('pw-captured', (event, domain, username, password) => {
-  pendingCredentials.set(event.sender.id, { domain, username, password });
-});
-
-ipcMain.handle('pw-save-pending', (event, tabId) => {
-  const winState = getWinState(event.sender);
-  const view = winState?.views.get(tabId);
-  if (!view) return false;
-  const pending = pendingCredentials.get(view.webContents.id);
-  if (pending && pwManager.isUnlocked()) {
-    pwManager.save(pending.domain, pending.username, pending.password);
-    pendingCredentials.delete(view.webContents.id);
-    return true;
+ipcMain.handle('get-tab-preview', async (_, tabId) => {
+  if (thumbnailCache.has(tabId)) {
+    return thumbnailCache.get(tabId);
   }
-  return false;
+  for (const winState of windows.values()) {
+    const view = winState.views.get(tabId);
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
+      try {
+        const image = await view.webContents.capturePage({ width: 320, height: 180 });
+        if (image) {
+          const url = image.toDataURL();
+          thumbnailCache.set(tabId, url);
+          return url;
+        }
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  return null;
 });
 
-ipcMain.on('pw-discard-pending', (event, tabId) => {
-  const winState = getWinState(event.sender);
-  const view = winState?.views.get(tabId);
-  if (view) {
-    pendingCredentials.delete(view.webContents.id);
-  }
-});
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function broadcast(channel, ...args) {
@@ -835,8 +838,10 @@ function createView(winState, id, url, lazy = false) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // OS Sandbox breaks spellchecker IPC for dictionary suggestions
-      preload: path.join(__dirname, '..', 'preload', 'preload.js'),
+      sandbox: !isInternal, // untrusted web content is fully sandboxed
+      preload: isInternal
+        ? path.join(__dirname, '..', 'preload', 'preload.js')
+        : path.join(__dirname, '..', 'preload', 'content-preload.js'),
       partition: winState.partitionId,
       spellcheck: true,
       enableWebSQL: isInternal,
@@ -1009,6 +1014,16 @@ function scheduleTabSleep(winState, id) {
   }
   if (!settings.tabSleepEnabled || id === winState.activeViewId) return;
 
+  const view = winState.views.get(id);
+  if (view && settings.tabSleepingWhitelist) {
+    const u = view.webContents?.getURL() || '';
+    try {
+      const hostname = new URL(u).hostname;
+      const list = settings.tabSleepingWhitelist.split(',').map(s => s.trim().toLowerCase());
+      if (list.some(domain => domain && hostname.includes(domain))) return;
+    } catch {}
+  }
+
   const timer = setTimeout(() => {
     sleepTab(winState, id);
   }, settings.tabSleepDelay * 60 * 1000);
@@ -1051,8 +1066,16 @@ function switchView(winState, id) {
 
   const prevId = winState.activeViewId;
 
-  if (winState.activeViewId && winState.views.has(winState.activeViewId)) {
-    winState.window.contentView.removeChildView(winState.views.get(winState.activeViewId));
+  if (prevId && winState.views.has(prevId)) {
+    const prevView = winState.views.get(prevId);
+    if (prevView && prevView.webContents && !prevView.webContents.isDestroyed()) {
+      prevView.webContents.capturePage({ width: 320, height: 180 }).then(img => {
+        if (img) thumbnailCache.set(prevId, img.toDataURL());
+      }).catch(() => {});
+      if (winState.window && !winState.window.isDestroyed()) {
+        winState.window.contentView.removeChildView(prevView);
+      }
+    }
   }
   winState.activeViewId = id;
   const v = winState.views.get(id);
@@ -1077,6 +1100,7 @@ function switchView(winState, id) {
 }
 
 function closeView(winState, id) {
+  thumbnailCache.delete(id);
   if (tabSleepTimers.has(id)) {
     clearTimeout(tabSleepTimers.get(id));
     tabSleepTimers.delete(id);
@@ -1099,13 +1123,29 @@ function updateActiveViewBounds(winState) {
   const v = winState.views.get(winState.activeViewId);
   if (!v) return;
   const { width, height } = winState.window.getContentBounds();
-  const { sidebarWidth, headerHeight } = settings.geometry;
+  const headerH = settings.compactUi ? 44 : Math.round(settings.geometry.headerHeight);
+  const sbW = settings.compactUi ? 60 : Math.round(settings.geometry.sidebarWidth);
+  const isRight = settings.sidebarPosition === 'right';
   v.setBounds({
-    x: Math.round(sidebarWidth),
-    y: Math.round(headerHeight),
-    width: Math.max(1, Math.round(width - sidebarWidth)),
-    height: Math.max(1, Math.round(height - headerHeight)),
+    x: isRight ? 0 : sbW,
+    y: headerH,
+    width: Math.max(1, Math.round(width - sbW)),
+    height: Math.max(1, Math.round(height - headerH)),
   });
+}
+
+function setupSecureDNS(sess) {
+  try {
+    if (!settings.secureDns || settings.secureDns === 'default') return;
+    const endpoints = {
+      cloudflare: 'https://cloudflare-dns.com/dns-query',
+      quad9: 'https://dns.quad9.net/dns-query',
+      google: 'https://dns.google/dns-query',
+    };
+    if (endpoints[settings.secureDns] && typeof sess.setServerResolverMode === 'function') {
+      sess.setServerResolverMode('secure_only', [endpoints[settings.secureDns]]);
+    }
+  } catch (e) { console.warn('[kiyo] DoH setup failed', e); }
 }
 
 function setupAdblock(sess) {
@@ -1149,19 +1189,22 @@ function setupAdblock(sess) {
       return callback({ cancel: true });
     }
 
-    if (settings.adblockEnabled && adblock.shouldBlock(url, details.resourceType)) {
-      adblock.incrementStats();
-      return callback({ cancel: true });
-    }
+    if (settings.adblockEnabled) {
+      try {
+        const { evaluatePrivacyShield } = require('./lib/privacy');
+        const shieldRes = evaluatePrivacyShield(url, details);
+        if (shieldRes.redirectURL) return callback({ redirectURL: shieldRes.redirectURL });
+        if (shieldRes.cancel) {
+          adblock.incrementStats();
+          return callback({ cancel: true });
+        }
+      } catch (e) {}
 
-    try {
-      const { isDomainBlocked } = require('./lib/privacy');
-      const hostname = new URL(url).hostname;
-      if (settings.adblockEnabled && isDomainBlocked(hostname)) {
+      if (adblock.shouldBlock(url, details.resourceType)) {
         adblock.incrementStats();
         return callback({ cancel: true });
       }
-    } catch (e) {}
+    }
 
     callback({ cancel: false });
   });
@@ -1173,6 +1216,14 @@ app.whenReady().then(() => {
   loadSettings();
   loadBookmarks();
   loadHistory();
+  
+  // Auto-lock password manager on system idle (5 minutes = 300 seconds)
+  setInterval(() => {
+    if (pwManager.isUnlocked() && powerMonitor.getSystemIdleTime() >= 300) {
+      pwManager.lock();
+    }
+  }, 30000); // Check every 30 seconds
+
   adblock.initAdblock();
 
   const defaultUA = session.defaultSession.getUserAgent();
@@ -1181,9 +1232,25 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  // Apply Shield to default session too
-  setupPrivacyShield(session.defaultSession);
+  // Apply Adblock/Shield to default session too
   setupAdblock(session.defaultSession);
+
+  // Global audio status monitor for all active tabs
+  setInterval(() => {
+    for (const winState of windows.values()) {
+      if (!winState.window || winState.window.isDestroyed()) continue;
+      for (const [id, view] of winState.views) {
+        if (!view || !view.webContents || view.webContents.isDestroyed()) continue;
+        try {
+          const audible = view.webContents.isCurrentlyAudible();
+          if (view._lastAudible !== audible) {
+            view._lastAudible = audible;
+            winState.window.webContents.send('tab-audio-state', id, audible);
+          }
+        } catch {}
+      }
+    }
+  }, 500);
 
   // Enable Spellchecker globally
   session.defaultSession.setSpellCheckerEnabled(true);

@@ -78,7 +78,8 @@
 
       const fileMeta = document.createElement('div');
       fileMeta.className = 'file-meta';
-      fileMeta.textContent = new Date().toLocaleTimeString();
+      const is24h = window._kiyoSettings?.timeFormat === '24h';
+      fileMeta.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !is24h });
       info.appendChild(fileMeta);
 
       const progressContainer = document.createElement('div');

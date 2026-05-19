@@ -19,6 +19,7 @@
       <nav>
         <button data-section="appearance" class="active"><i data-lucide="palette"></i> Appearance</button>
         <button data-section="general"><i data-lucide="settings"></i> General</button>
+        <button data-section="groups"><i data-lucide="layers"></i> Tab Groups</button>
         <button data-section="performance"><i data-lucide="zap"></i> Performance</button>
         <button data-section="privacy"><i data-lucide="shield"></i> Privacy</button>
         <button data-section="shortcuts"><i data-lucide="keyboard"></i> Shortcuts</button>
@@ -74,6 +75,69 @@
           </div>
           <input type="range" id="blur-range" min="0" max="60" value="25">
         </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Accent Color</span>
+            <span class="desc">Custom primary color for buttons and active states.</span>
+          </div>
+          <input type="color" id="accent-color-picker" value="#00d2ff">
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Sidebar Docking</span>
+            <span class="desc">Dock the vertical tab sidebar to the left or right edge.</span>
+          </div>
+          <div class="custom-select-wrapper" id="sidebar-pos-wrapper">
+            <div class="custom-select-trigger" id="sidebar-pos-trigger">
+              <span>Left</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="sidebar-pos-options">
+              <div class="custom-option selected" data-value="left">Left</div>
+              <div class="custom-option" data-value="right">Right</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Compact UI Mode</span>
+            <span class="desc">Reduce floating header height and sidebar width for small laptop screens.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="compact-ui-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">UI Font Family</span>
+            <span class="desc">Select typography for application interface and menus.</span>
+          </div>
+          <div class="custom-select-wrapper" id="font-family-wrapper">
+            <div class="custom-select-trigger" id="font-family-trigger">
+              <span>Inter</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="font-family-options">
+              <div class="custom-option selected" data-value="Inter">Inter</div>
+              <div class="custom-option" data-value="JetBrains Mono">JetBrains Mono</div>
+              <div class="custom-option" data-value="System">System Default</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab Groups -->
+      <section id="groups" style="display: none;">
+        <h3>Tab Groups</h3>
+        <p class="desc" style="margin-bottom: 16px; color: var(--text-dim); font-size: 13px;">Manage your custom tab groups. Name and color changes apply instantly to the browser.</p>
+        <div id="settings-groups-list" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="desc">Loading groups...</div>
+        </div>
       </section>
 
       <!-- General -->
@@ -95,6 +159,53 @@
               <div class="custom-option" data-value="duckduckgo">DuckDuckGo</div>
             </div>
           </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Time Format</span>
+            <span class="desc">Display time in 12-hour (AM/PM) or 24-hour format.</span>
+          </div>
+          <div class="custom-select-wrapper" id="time-format-wrapper">
+            <div class="custom-select-trigger" id="time-format-trigger">
+              <span>12-hour (AM/PM)</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="time-format-options">
+              <div class="custom-option selected" data-value="12h">12-hour (AM/PM)</div>
+              <div class="custom-option" data-value="24h">24-hour</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Startup Page</span>
+            <span class="desc">Page to open when starting Kiyo or opening a new window.</span>
+          </div>
+          <input type="text" id="startup-url-input" class="settings-input" value="kiyo://welcome" spellcheck="false">
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Ask Where to Save</span>
+            <span class="desc">Prompt for a download location every time a file is downloaded.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="dl-prompt-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">UI Acoustic Feedback</span>
+            <span class="desc">Play subtle synthesizer sounds on navigation and micro-interactions.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="ui-sounds-toggle">
+            <span class="slider"></span>
+          </label>
         </div>
       </section>
 
@@ -139,6 +250,36 @@
             <span id="tab-sleep-stats" class="desc">Loading stats...</span>
           </div>
           <button class="action-btn" id="sleep-all-btn">Sleep All Background Tabs</button>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Sleeping Whitelist</span>
+            <span class="desc">Domains that will never be put to sleep (comma separated).</span>
+          </div>
+          <input type="text" id="whitelist-input" class="settings-input" placeholder="youtube.com, spotify.com" spellcheck="false">
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Disk Cache Limit</span>
+            <span class="desc">Maximum disk space allocated for browser caching.</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <input type="range" id="cache-range" min="50" max="2000" step="50" value="500">
+            <span id="cache-label" style="font-size: 14px; font-weight: 600; min-width: 60px;">500 MB</span>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Battery Saver Mode</span>
+            <span class="desc">Optimize power usage and background activity when unplugged.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="battery-saver-toggle">
+            <span class="slider"></span>
+          </label>
         </div>
       </section>
 
@@ -186,11 +327,82 @@
             <span class="slider"></span>
           </label>
         </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Secure DNS (DoH)</span>
+            <span class="desc">Encrypt DNS queries to prevent ISP tracking and eavesdropping.</span>
+          </div>
+          <div class="custom-select-wrapper" id="secure-dns-wrapper">
+            <div class="custom-select-trigger" id="secure-dns-trigger">
+              <span>Default (OS)</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="secure-dns-options">
+              <div class="custom-option selected" data-value="default">Default (OS)</div>
+              <div class="custom-option" data-value="cloudflare">Cloudflare (1.1.1.1)</div>
+              <div class="custom-option" data-value="quad9">Quad9 (Secure)</div>
+              <div class="custom-option" data-value="google">Google Public DNS</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Clear History on Exit</span>
+            <span class="desc">Automatically wipe browsing history every time Kiyo closes.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wipe-history-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Clear Cookies on Exit</span>
+            <span class="desc">Automatically wipe website cookies and logins on close.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wipe-cookies-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="info">
+            <span class="label">Clear Cache on Exit</span>
+            <span class="desc">Automatically purge cached images and files on close.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wipe-cache-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
       </section>
 
       <!-- Shortcuts -->
       <section id="shortcuts" style="display: none;">
-        <h3>Keyboard Shortcuts</h3>
+        <h3>Navigation & Shortcuts</h3>
+        
+        <div class="setting-item" style="padding-top: 0;">
+          <div class="info">
+            <span class="label">Tab Close Focus Behavior</span>
+            <span class="desc">Which tab is focused after closing your active tab.</span>
+          </div>
+          <div class="custom-select-wrapper" id="tab-focus-wrapper">
+            <div class="custom-select-trigger" id="tab-focus-trigger">
+              <span>Switch to Right Tab</span>
+              <i data-lucide="chevron-down"></i>
+            </div>
+            <div class="custom-options" id="tab-focus-options">
+              <div class="custom-option selected" data-value="right">Switch to Right Tab</div>
+              <div class="custom-option" data-value="last">Switch to Last Active</div>
+            </div>
+          </div>
+        </div>
+
+        <h4 style="font-size: 16px; margin: 24px 0 16px 0; color: var(--arch-blue);">Keyboard Shortcuts</h4>
         <table class="shortcut-table">
           <tr>
             <td>New tab</td>
@@ -307,6 +519,64 @@
     setupCustomSelect('tab-style-wrapper', 'tabStyle');
     setupCustomSelect('search-engine-wrapper', 'searchEngine');
     setupCustomSelect('sleep-delay-wrapper', 'tabSleepDelay');
+    setupCustomSelect('time-format-wrapper', 'timeFormat');
+    setupCustomSelect('sidebar-pos-wrapper', 'sidebarPosition');
+    setupCustomSelect('font-family-wrapper', 'uiFontFamily');
+    setupCustomSelect('secure-dns-wrapper', 'secureDns');
+    setupCustomSelect('tab-focus-wrapper', 'tabCloseFocus');
+
+    document.getElementById('accent-color-picker').oninput = e => {
+      window.electronAPI.updateSetting('customAccentColor', e.target.value);
+    };
+
+    document.getElementById('compact-ui-toggle').onchange = e => {
+      window.electronAPI.updateSetting('compactUi', e.target.checked);
+    };
+
+    let _wlTimer;
+    document.getElementById('whitelist-input').oninput = e => {
+      clearTimeout(_wlTimer);
+      _wlTimer = setTimeout(() => {
+        window.electronAPI.updateSetting('tabSleepingWhitelist', e.target.value.trim());
+      }, 300);
+    };
+
+    document.getElementById('cache-range').oninput = e => {
+      document.getElementById('cache-label').textContent = `${e.target.value} MB`;
+      window.electronAPI.updateSetting('diskCacheCap', parseInt(e.target.value));
+    };
+
+    document.getElementById('battery-saver-toggle').onchange = e => {
+      window.electronAPI.updateSetting('batterySaver', e.target.checked);
+    };
+
+    document.getElementById('wipe-history-toggle').onchange = e => {
+      window.electronAPI.updateSetting('autoWipeHistory', e.target.checked);
+    };
+
+    document.getElementById('wipe-cookies-toggle').onchange = e => {
+      window.electronAPI.updateSetting('autoWipeCookies', e.target.checked);
+    };
+
+    document.getElementById('wipe-cache-toggle').onchange = e => {
+      window.electronAPI.updateSetting('autoWipeCache', e.target.checked);
+    };
+
+    let _startupTimer;
+    document.getElementById('startup-url-input').oninput = e => {
+      clearTimeout(_startupTimer);
+      _startupTimer = setTimeout(() => {
+        window.electronAPI.updateSetting('startupUrl', e.target.value.trim());
+      }, 300);
+    };
+
+    document.getElementById('dl-prompt-toggle').onchange = e => {
+      window.electronAPI.updateSetting('downloadsPathPrompt', e.target.checked);
+    };
+
+    document.getElementById('ui-sounds-toggle').onchange = e => {
+      window.electronAPI.updateSetting('uiSoundsEnabled', e.target.checked);
+    };
 
     document.getElementById('tab-sleep-enabled').onchange = e => {
       window.electronAPI.updateSetting('tabSleepEnabled', e.target.checked);
@@ -377,6 +647,33 @@
       if (s.strictHttps !== undefined) {
         document.getElementById('https-toggle').checked = s.strictHttps;
       }
+      if (s.timeFormat) syncDropdown('time-format-options', 'time-format-trigger', s.timeFormat);
+      if (s.startupUrl !== undefined && document.activeElement !== document.getElementById('startup-url-input')) {
+        document.getElementById('startup-url-input').value = s.startupUrl;
+      }
+      if (s.downloadsPathPrompt !== undefined) {
+        document.getElementById('dl-prompt-toggle').checked = s.downloadsPathPrompt;
+      }
+      if (s.uiSoundsEnabled !== undefined) {
+        document.getElementById('ui-sounds-toggle').checked = s.uiSoundsEnabled;
+      }
+      if (s.customAccentColor) document.getElementById('accent-color-picker').value = s.customAccentColor;
+      if (s.sidebarPosition) syncDropdown('sidebar-pos-options', 'sidebar-pos-trigger', s.sidebarPosition);
+      if (s.compactUi !== undefined) document.getElementById('compact-ui-toggle').checked = s.compactUi;
+      if (s.uiFontFamily) syncDropdown('font-family-options', 'font-family-trigger', s.uiFontFamily);
+      if (s.tabSleepingWhitelist !== undefined && document.activeElement !== document.getElementById('whitelist-input')) {
+        document.getElementById('whitelist-input').value = s.tabSleepingWhitelist;
+      }
+      if (s.diskCacheCap !== undefined) {
+        document.getElementById('cache-range').value = s.diskCacheCap;
+        document.getElementById('cache-label').textContent = `${s.diskCacheCap} MB`;
+      }
+      if (s.batterySaver !== undefined) document.getElementById('battery-saver-toggle').checked = s.batterySaver;
+      if (s.secureDns) syncDropdown('secure-dns-options', 'secure-dns-trigger', s.secureDns);
+      if (s.autoWipeHistory !== undefined) document.getElementById('wipe-history-toggle').checked = s.autoWipeHistory;
+      if (s.autoWipeCookies !== undefined) document.getElementById('wipe-cookies-toggle').checked = s.autoWipeCookies;
+      if (s.autoWipeCache !== undefined) document.getElementById('wipe-cache-toggle').checked = s.autoWipeCache;
+      if (s.tabCloseFocus) syncDropdown('tab-focus-options', 'tab-focus-trigger', s.tabCloseFocus);
     }
 
     function syncDropdown(optionsId, triggerId, value) {
@@ -444,8 +741,57 @@
         });
         if (sec === 'performance') updateSleepStats();
         if (sec === 'privacy') updateAdblockStats();
+        if (sec === 'groups') loadTabGroups();
       };
     });
+
+    // ── Tab Groups ────────────────────────────────────────────────────────────
+    async function loadTabGroups() {
+      const listEl = document.getElementById('settings-groups-list');
+      try {
+        const groups = await window.electronAPI.getGroups();
+        listEl.innerHTML = '';
+        if (!groups || groups.length === 0) {
+          listEl.innerHTML = '<div class="desc">No active tab groups.</div>';
+          return;
+        }
+
+        groups.forEach(g => {
+          const row = document.createElement('div');
+          row.className = 'setting-item';
+          row.style.gap = '12px';
+          row.innerHTML = `
+            <input type="color" value="${g.color}" class="group-color-input" title="Change color" style="width: 32px; height: 32px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: transparent;">
+            <input type="text" value="${g.name}" class="group-name-input" placeholder="Group Name" style="flex-grow: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px; color: var(--text-main); outline: none;">
+            <button class="action-btn delete-group-btn" title="Delete Group" style="width: 38px; height: 38px; padding: 0; display: flex; justify-content: center; align-items: center; color: #ff4d4d; border-color: rgba(255, 77, 77, 0.2);"><i data-lucide="trash-2"></i></button>
+          `;
+
+          const colorInput = row.querySelector('.group-color-input');
+          const nameInput = row.querySelector('.group-name-input');
+          const deleteBtn = row.querySelector('.delete-group-btn');
+
+          const saveChanges = () => {
+            window.electronAPI.updateGroup(g.id, nameInput.value, colorInput.value);
+          };
+
+          colorInput.onchange = saveChanges;
+          nameInput.onchange = saveChanges;
+
+          deleteBtn.onclick = () => {
+            window.electronAPI.deleteGroup(g.id);
+            row.remove();
+            if (listEl.children.length === 0) {
+              listEl.innerHTML = '<div class="desc">No active tab groups.</div>';
+            }
+          };
+
+          listEl.appendChild(row);
+        });
+        lucide.createIcons({ nodes: [...listEl.querySelectorAll('.delete-group-btn')] });
+      } catch (e) {
+        listEl.innerHTML = '<div class="desc" style="color:#ff4d4d">Failed to load groups.</div>';
+      }
+    }
   </script>
 </body>
 
