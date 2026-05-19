@@ -1417,17 +1417,21 @@ function createView(winState, id, url, lazy = false) {
       safeSend(winState.window, 'html-fullscreen-state', id, true);
     }
     updateActiveViewBounds(winState);
+    setTimeout(() => updateActiveViewBounds(winState), 100);
+    setTimeout(() => updateActiveViewBounds(winState), 300);
+    setTimeout(() => updateActiveViewBounds(winState), 600);
   });
 
   view.webContents.on('leave-html-full-screen', () => {
-    if (winState.htmlFullscreenTabId === id) {
-      winState.htmlFullscreenTabId = null;
-    }
+    winState.htmlFullscreenTabId = null;
     if (winState.window && !winState.window.isDestroyed()) {
       winState.window.setFullScreen(false);
       safeSend(winState.window, 'html-fullscreen-state', id, false);
     }
     updateActiveViewBounds(winState);
+    setTimeout(() => updateActiveViewBounds(winState), 100);
+    setTimeout(() => updateActiveViewBounds(winState), 300);
+    setTimeout(() => updateActiveViewBounds(winState), 600);
   });
 
   view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
@@ -1611,6 +1615,9 @@ function updateActiveViewBounds(winState) {
       width: width,
       height: height,
     });
+    if (v.webContents && !v.webContents.isDestroyed()) {
+      try { v.webContents.invalidate(); } catch (e) {}
+    }
     return;
   }
 
@@ -1623,6 +1630,9 @@ function updateActiveViewBounds(winState) {
     width: Math.max(1, Math.round(width - sbW)),
     height: Math.max(1, Math.round(height - headerH)),
   });
+  if (v.webContents && !v.webContents.isDestroyed()) {
+    try { v.webContents.invalidate(); } catch (e) {}
+  }
 }
 
 function setupSecureDNS(sess) {
