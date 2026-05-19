@@ -461,7 +461,8 @@ async function createWindow(isPrivate = false, restoredSession = null) {
     views: new Map(),
     activeViewId: null,
     isPrivate,
-    partitionId: isPrivate ? PrivateSessionManager.getPartitionId() : undefined
+    partitionId: isPrivate ? PrivateSessionManager.getPartitionId() : undefined,
+    htmlFullscreenTabId: null
   };
   windows.set(win.webContents.id, winState);
 
@@ -535,6 +536,31 @@ async function createWindow(isPrivate = false, restoredSession = null) {
   win.on('resize', () => {
     if (_resizeTimer) clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(() => updateActiveViewBounds(winState), 16);
+  });
+
+  win.on('enter-full-screen', () => {
+    updateActiveViewBounds(winState);
+    setTimeout(() => updateActiveViewBounds(winState), 50);
+    setTimeout(() => updateActiveViewBounds(winState), 200);
+    setTimeout(() => updateActiveViewBounds(winState), 500);
+    setTimeout(() => updateActiveViewBounds(winState), 1000);
+  });
+
+  win.on('leave-full-screen', () => {
+    if (winState.htmlFullscreenTabId) {
+      const oldFullscreenId = winState.htmlFullscreenTabId;
+      winState.htmlFullscreenTabId = null;
+      safeSend(win, 'html-fullscreen-state', oldFullscreenId, false);
+      const v = winState.views.get(winState.activeViewId);
+      if (v && v.webContents && !v.webContents.isDestroyed()) {
+        v.webContents.executeJavaScript('document.exitFullscreen().catch(() => {})');
+      }
+    }
+    updateActiveViewBounds(winState);
+    setTimeout(() => updateActiveViewBounds(winState), 50);
+    setTimeout(() => updateActiveViewBounds(winState), 200);
+    setTimeout(() => updateActiveViewBounds(winState), 500);
+    setTimeout(() => updateActiveViewBounds(winState), 1000);
   });
 
   // ── CSP ─────────────────────────────────────────────────────────────────────
@@ -1384,6 +1410,26 @@ function createView(winState, id, url, lazy = false) {
   view.webContents.on('did-start-loading', () => safeSend(winState.window, 'loading-status', id, true));
   view.webContents.on('did-stop-loading', () => safeSend(winState.window, 'loading-status', id, false));
 
+  view.webContents.on('enter-html-full-screen', () => {
+    winState.htmlFullscreenTabId = id;
+    if (winState.window && !winState.window.isDestroyed()) {
+      winState.window.setFullScreen(true);
+      safeSend(winState.window, 'html-fullscreen-state', id, true);
+    }
+    updateActiveViewBounds(winState);
+  });
+
+  view.webContents.on('leave-html-full-screen', () => {
+    if (winState.htmlFullscreenTabId === id) {
+      winState.htmlFullscreenTabId = null;
+    }
+    if (winState.window && !winState.window.isDestroyed()) {
+      winState.window.setFullScreen(false);
+      safeSend(winState.window, 'html-fullscreen-state', id, false);
+    }
+    updateActiveViewBounds(winState);
+  });
+
   view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (isMainFrame && errorCode !== -3) { // Skip cancelled requests
       const errorPage = `${PAGE.error()}?url=${encodeURIComponent(validatedURL)}&code=${errorCode}&desc=${encodeURIComponent(errorDescription)}`;
@@ -1448,6 +1494,15 @@ function wakeTab(winState, id) {
 }
 
 function switchView(winState, id) {
+  if (winState.htmlFullscreenTabId && winState.htmlFullscreenTabId !== id) {
+    const oldFullscreenId = winState.htmlFullscreenTabId;
+    winState.htmlFullscreenTabId = null;
+    if (winState.window && !winState.window.isDestroyed()) {
+      winState.window.setFullScreen(false);
+      safeSend(winState.window, 'html-fullscreen-state', oldFullscreenId, false);
+    }
+  }
+
   if (sleepedTabs.has(id)) {
     wakeTab(winState, id);
     // Do not return; continue below to activate and load the awakened view linearly
@@ -1495,6 +1550,14 @@ function switchView(winState, id) {
 }
 
 function closeView(winState, id) {
+  if (winState.htmlFullscreenTabId === id) {
+    winState.htmlFullscreenTabId = null;
+    if (winState.window && !winState.window.isDestroyed()) {
+      winState.window.setFullScreen(false);
+      safeSend(winState.window, 'html-fullscreen-state', id, false);
+    }
+  }
+
   readerArticles.delete(id);
   thumbnailCache.delete(id);
   tabNavStack.delete(id);
@@ -1522,7 +1585,35 @@ function updateActiveViewBounds(winState) {
   if (!winState.window || !winState.activeViewId) return;
   const v = winState.views.get(winState.activeViewId);
   if (!v) return;
-  const { width, height } = winState.window.getContentBounds();
+  
+  let width, height;
+  if (winState.window.isFullScreen()) {
+    try {
+      const { screen } = require('electron');
+      const display = screen.getDisplayMatching(winState.window.getBounds());
+      width = display.bounds.width;
+      height = display.bounds.height;
+    } catch (err) {
+      const bounds = winState.window.getContentBounds();
+      width = bounds.width;
+      height = bounds.height;
+    }
+  } else {
+    const bounds = winState.window.getContentBounds();
+    width = bounds.width;
+    height = bounds.height;
+  }
+  
+  if (winState.htmlFullscreenTabId === winState.activeViewId) {
+    v.setBounds({
+      x: 0,
+      y: 0,
+      width: width,
+      height: height,
+    });
+    return;
+  }
+
   const headerH = settings.compactUi ? 44 : Math.round(settings.geometry.headerHeight);
   const sbW = settings.compactUi ? 60 : Math.round(settings.geometry.sidebarWidth);
   const isRight = settings.sidebarPosition === 'right';

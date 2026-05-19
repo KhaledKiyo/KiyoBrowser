@@ -1231,6 +1231,14 @@ window.electronAPI.onBookmarksUpdated(() => {
   updateBookmarkStar(currentUrl);
 });
 
+window.electronAPI.onHtmlFullscreenState((tabId, isFullscreen) => {
+  if (isFullscreen) {
+    document.documentElement.classList.add('html-fullscreen');
+  } else {
+    document.documentElement.classList.remove('html-fullscreen');
+  }
+});
+
 // Keyboard shortcuts from main
 window.electronAPI.onShortcut(name => {
   if (name === 'new-tab') createTab();

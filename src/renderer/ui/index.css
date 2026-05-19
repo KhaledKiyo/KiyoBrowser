@@ -1207,3 +1207,12 @@ body.private-mode .tab-icon svg {
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
   background: var(--bg-sidebar);
 }
+
+/* HTML5 Fullscreen Support */
+html.html-fullscreen body .browser-sidebar {
+  display: none !important;
+}
+
+html.html-fullscreen body .floating-header {
+  display: none !important;
+}

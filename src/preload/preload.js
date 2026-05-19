@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTabAudioState: (cb) => on('tab-audio-state', (_, id, audible) => cb(id, audible)),
   toggleTabMute: (id) => ipcRenderer.send('toggle-tab-mute', id),
   onNavState: (cb) => on('nav-state', (_, tabId, canBack, canForward) => cb(tabId, canBack, canForward)),
+  onHtmlFullscreenState: (cb) => on('html-fullscreen-state', (_, tabId, isFullscreen) => cb(tabId, isFullscreen)),
 
   // ── Downloads ─────────────────────────────────────────────────────────────
   onDownloadsUpdated: (cb) => on('downloads-updated', (_, downloads) => cb(downloads)),
