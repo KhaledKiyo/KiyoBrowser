@@ -1,0 +1,119 @@
+/* bookmarks.js — Kiyo Browser bookmark manager page logic */
+'use strict';
+
+lucide.createIcons();
+
+let allBookmarks = [];
+const grid = document.getElementById('bookmarks-grid');
+const emptyMsg = document.getElementById('empty-msg');
+
+function getFavicon(url) {
+    try { return `https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}`; }
+    catch { return ''; }
+}
+
+function timeAgo(ts) {
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+}
+
+function render(bookmarks) {
+    // Remove cards that no longer exist
+    grid.querySelectorAll('.bookmark-card[data-url]').forEach(card => {
+        if (!bookmarks.find(b => b.url === card.dataset.url)) card.remove();
+    });
+
+    if (bookmarks.length === 0) {
+        emptyMsg.style.display = '';
+        return;
+    }
+    emptyMsg.style.display = 'none';
+
+    bookmarks.forEach((bm, i) => {
+        const existing = grid.querySelector(`.bookmark-card[data-url="${CSS.escape(bm.url)}"]`);
+        if (existing) {
+            existing.querySelector('.bm-meta').textContent = timeAgo(bm.addedAt);
+            return;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'bookmark-card';
+        card.dataset.url = bm.url;
+
+        const favicon = document.createElement('img');
+        favicon.className = 'bm-favicon';
+        favicon.src = getFavicon(bm.url);
+        favicon.alt = '';
+        favicon.onerror = () => { favicon.style.display = 'none'; };
+        card.appendChild(favicon);
+
+        const info = document.createElement('div');
+        info.className = 'bm-info';
+
+        const title = document.createElement('span');
+        title.className = 'bm-title';
+        title.style.cursor = 'pointer';
+        title.textContent = bm.title || bm.url;
+        title.addEventListener('click', () => window.electronAPI.navigate(bm.url));
+        info.appendChild(title);
+
+        const url = document.createElement('span');
+        url.className = 'bm-url';
+        url.textContent = bm.url;
+        info.appendChild(url);
+
+        card.appendChild(info);
+
+        const meta = document.createElement('div');
+        meta.className = 'bm-meta';
+        meta.textContent = timeAgo(bm.addedAt);
+        card.appendChild(meta);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'bm-remove';
+        removeBtn.title = 'Remove bookmark';
+        removeBtn.innerHTML = '<i data-lucide="x"></i>';
+        removeBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            window.electronAPI.removeBookmark(bm.url);
+        });
+        card.appendChild(removeBtn);
+
+        // Insert at correct position
+        const cards = grid.querySelectorAll('.bookmark-card[data-url]');
+        if (cards.length === 0 || i >= cards.length) {
+            grid.appendChild(card);
+        } else {
+            grid.insertBefore(card, cards[i]);
+        }
+    });
+
+    lucide.createIcons({ attrs: { 'stroke-width': 2, 'class': 'lucide' }, nodes: [grid] });
+}
+
+async function load() {
+    allBookmarks = await window.electronAPI.getBookmarks();
+    render(allBookmarks);
+}
+
+load();
+
+window.electronAPI.onBookmarksUpdated(bm => {
+    allBookmarks = bm;
+    const query = document.getElementById('search-input').value.toLowerCase();
+    render(query
+        ? allBookmarks.filter(b => b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query))
+        : allBookmarks
+    );
+});
+
+document.getElementById('search-input').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    render(q
+        ? allBookmarks.filter(b => (b.title || '').toLowerCase().includes(q) || b.url.toLowerCase().includes(q))
+        : allBookmarks
+    );
+});

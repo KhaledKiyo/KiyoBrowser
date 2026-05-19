@@ -65,7 +65,7 @@ app.commandLine.appendSwitch('js-flags', '--max-semi-space-size=1024');
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
 const { PrivateSessionManager } = require('./lib/session');
-const { setupPrivacyShield, bindCosmeticFilters, evaluatePrivacyShield } = require('./lib/privacy');
+const { bindCosmeticFilters, evaluatePrivacyShield } = require('./lib/privacy');
 const { readJSON, writeJSON } = require('./lib/utils');
 const adblock = require('./adblock');
 const { extractArticle, isArticlePage } = require('./readability');
@@ -670,7 +670,12 @@ ipcMain.handle('renderer-ready', (event) => {
 // --- IPC Registration ---
 const registerAllIPC = require('./ipc');
 const ipcContext = {
+  // ── Paths ──────────────────────────────────────────────────────────────────
   EXTENSIONS_PATH,
+  SESSION_PATH: path.join(USER_DATA, 'kiyo-session.json'),
+  QUICKLINKS_PATH: path.join(USER_DATA, 'kiyo-quicklinks.json'),
+
+  // ── Settings ───────────────────────────────────────────────────────────────
   getSettings: () => settings,
   setSetting: (key, value) => {
     settings[key] = value;
@@ -683,15 +688,46 @@ const ipcContext = {
   },
   validateSetting: (key, value) => SETTING_SCHEMA[key] && SETTING_SCHEMA[key](value),
   saveSettings,
+
+  // ── Adblock ────────────────────────────────────────────────────────────────
   adblock,
+
+  // ── Windows & Views ────────────────────────────────────────────────────────
+  windows,
+  getWinState,
+  createView,
+  switchView,
+  closeView,
+  updateActiveViewBounds,
+
+  // ── Tab Sleep ──────────────────────────────────────────────────────────────
+  sleepTab,
+  wakeTab,
+  sleepedTabs,
+  thumbnailCache,
   getSleepStats: () => {
     let activeCount = 0;
-    for (const winState of windows.values()) {
-      activeCount += winState.views.size;
-    }
+    for (const winState of windows.values()) activeCount += winState.views.size;
     return { sleeping: sleepedTabs.size, active: activeCount };
   },
-  windows,
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  resolveUrl,
+  PAGE,
+  tabNavStack,
+  softwareGoBack,
+  softwareGoForward,
+  pushToNavStack,
+
+  // ── Reader ─────────────────────────────────────────────────────────────────
+  readerArticles,
+  extractArticle,
+  isArticlePage,
+
+  // ── Downloads ──────────────────────────────────────────────────────────────
+  downloads,
+
+  // ── Bookmarks & History ────────────────────────────────────────────────────
   getBookmarks: () => bookmarks,
   setBookmarks: (val) => { bookmarks = val; },
   getHistory: () => history,
@@ -699,16 +735,25 @@ const ipcContext = {
   MAX_BOOKMARKS,
   saveBookmarks,
   saveHistory,
+
+  // ── Passwords ──────────────────────────────────────────────────────────────
   pwManager,
   pendingCredentials,
+
+  // ── Utils ──────────────────────────────────────────────────────────────────
   broadcast,
-  finishOnboarding: () => {
-    writeJSON(path.join(USER_DATA, 'kiyo-onboarded.json'), { onboarded: true, date: Date.now() });
-  },
+  safeSend,
+  readJSON,
+  writeJSON,
+  newTabId,
+  MAX_TABS,
   getViewByTabId: (sender, tabId) => {
     const winState = getWinState(sender);
     return winState ? winState.views.get(tabId) : null;
-  }
+  },
+  finishOnboarding: () => {
+    writeJSON(path.join(USER_DATA, 'kiyo-onboarded.json'), { onboarded: true, date: Date.now() });
+  },
 };
 registerAllIPC(ipcMain, ipcContext);
 // ------------------------

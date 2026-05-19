@@ -370,10 +370,6 @@ function warmCnameLookup(hostname) {
 
 // ─── Core Engine ─────────────────────────────────────────────────────────────
 
-function setupPrivacyShield() {
-  // No-op: Network interception is now unified and orchestrated in setupAdblock
-}
-
 function evaluatePrivacyShield(url, details, options = {}) {
   const { enableCnameHeuristic = true } = options;
   const cleanUrl = stripTrackingParams(url);
@@ -443,4 +439,4 @@ function bindCosmeticFilters(webContents) {
   webContents.once('destroyed', () => { COSMETIC_KEY_BY_WEBCONTENTS.delete(webContents); });
 }
 
-module.exports = { setupPrivacyShield, evaluatePrivacyShield, applyCosmeticFilters, bindCosmeticFilters, isDomainBlocked, isFirstParty };
+module.exports = { evaluatePrivacyShield, applyCosmeticFilters, bindCosmeticFilters, isDomainBlocked, isFirstParty };

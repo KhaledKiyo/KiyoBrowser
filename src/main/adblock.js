@@ -8,6 +8,7 @@ const EASYPRIVACY_URL = 'https://easylist.to/easylist/easyprivacy.txt';
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 let stats = { blocked: 0 };
+let _enabled = true;  // toggled at runtime via ipc/settings.js
 const exactDomains = new Set();
 const stringMatches = [];
 const ruleIndex = new Map();
@@ -65,22 +66,6 @@ function parseRuleLine(line) {
   }
 }
 
-// Built-in custom rules that supplement EasyList
-const BUILTIN_EXACT_DOMAINS = [
-  'log.fc.yahoo.com', 'udcm.yahoo.com',
-  'data.mistat.india.xiaomi.com', 'data.mistat.rus.xiaomi.com',
-  'data.mistat.xiaomi.com',
-];
-const BUILTIN_PATTERNS = [
-  '/pagead.js', '/widget/ads.', '/ads.js', '/ad.js',
-];
-for (const d of BUILTIN_EXACT_DOMAINS) exactDomains.add(d);
-for (const p of BUILTIN_PATTERNS) {
-  stringMatches.push(p);
-  const prefix = p.substring(0, 3);
-  if (!ruleIndex.has(prefix)) ruleIndex.set(prefix, []);
-  ruleIndex.get(prefix).push(p);
-}
 
 
 async function loadRules(filePath) {
@@ -148,6 +133,7 @@ function getRootDomain(hostname) {
 }
 
 function shouldBlock(urlStr, resourceType) {
+  if (!_enabled) return false;
   try {
     const url = new URL(urlStr);
     const hostname = url.hostname.toLowerCase();
@@ -183,6 +169,8 @@ function shouldBlock(urlStr, resourceType) {
 module.exports = {
   initAdblock,
   shouldBlock,
+  toggle: (enabled) => { _enabled = enabled; },
+  isEnabled: () => _enabled,
   getStats: () => stats,
   resetStats: () => { stats.blocked = 0; },
   incrementStats: () => { stats.blocked++; }

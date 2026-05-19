@@ -25,7 +25,7 @@ const activeTabRunner = document.getElementById('active-tab-runner');
 const sidebarSpotlight = document.getElementById('sidebar-spotlight');
 const headerAmbientGlow = document.getElementById('header-ambient-glow');
 const ttPreview = document.getElementById('tt-preview');
-const soundToggleBtn = document.getElementById('sound-toggle-btn');
+
 
 // ─── Sound Engine (Web Audio API Synthesizer) ─────────────────────────────────
 class SoundEngine {
