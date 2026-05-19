@@ -654,16 +654,15 @@ ipcMain.on('navigate', (event, url) => {
 
   const currentUrl = v.webContents.getURL() || '';
   const isCurrentlyInternal = currentUrl === '' || currentUrl.startsWith('file://') || currentUrl.startsWith('kiyo://');
-  const isNavigatingExternal = resolved.startsWith('http://') || resolved.startsWith('https://');
+  const isNavigatingInternal = resolved.startsWith('file://') || resolved.startsWith('kiyo://');
 
-  if (isCurrentlyInternal && isNavigatingExternal) {
+  if (isCurrentlyInternal !== isNavigatingInternal) {
     winState.window.contentView.removeChildView(v);
     winState.views.delete(id);
     viewToWindow.delete(v.webContents.id);
     v.webContents.destroy();
 
     createView(winState, id, resolved);
-    switchView(winState, id);
   } else {
     v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
   }

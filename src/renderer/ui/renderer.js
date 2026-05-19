@@ -155,7 +155,7 @@ const sounds = new SoundEngine();
 const faviconColorCache = new Map();
 
 function extractFaviconColor(url) {
-  if (!url || url.startsWith('kiyo://')) {
+  if (!url || url.startsWith('kiyo://') || url.startsWith('file://')) {
     document.documentElement.style.setProperty('--ambient-color', 'rgba(0, 210, 255, 0.15)');
     return;
   }

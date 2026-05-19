@@ -4,6 +4,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // only remove OUR previous one, not any others (removeAllListeners was too aggressive).
 const _kiyoListeners = new Map();
 function on(channel, wrapper) {
+  if (_kiyoListeners.has(channel)) {
+    ipcRenderer.removeListener(channel, _kiyoListeners.get(channel));
+  }
+  _kiyoListeners.set(channel, wrapper);
   ipcRenderer.on(channel, wrapper);
 }
 
