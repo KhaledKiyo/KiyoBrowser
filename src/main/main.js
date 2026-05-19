@@ -120,29 +120,102 @@ const downloads = [];
 let extensionsManager = null;
 const pendingCredentials = new Map(); // wc.id -> { domain, username, password }
 const readerArticles = new Map();     // tabId -> article data
-const tabNavStack = new Map();        // tabId -> Array of URLs
+const tabNavStack = new Map();        // tabId -> { stack: string[], index: number }
 
-function pushToNavStack(tabId, url) {
-  if (!tabNavStack.has(tabId)) {
-    tabNavStack.set(tabId, []);
-  }
-  const stack = tabNavStack.get(tabId);
-  if (stack.length === 0 || stack[stack.length - 1] !== url) {
-    if (stack.length > 50) stack.shift();
-    stack.push(url);
+function isSameUrlRelaxed(urlA, urlB) {
+  if (!urlA || !urlB) return false;
+  if (urlA === urlB) return true;
+  try {
+    const a = new URL(urlA);
+    const b = new URL(urlB);
+    
+    const hostA = a.hostname.replace(/^www\./i, '');
+    const hostB = b.hostname.replace(/^www\./i, '');
+    if (hostA !== hostB) return false;
+    
+    const pathA = a.pathname.replace(/\/$/, '');
+    const pathB = b.pathname.replace(/\/$/, '');
+    if (pathA !== pathB) return false;
+    
+    if (a.search !== b.search) return false;
+    return true;
+  } catch {
+    const cleanA = urlA.toLowerCase().replace(/\/$/, '');
+    const cleanB = urlB.toLowerCase().replace(/\/$/, '');
+    return cleanA === cleanB;
   }
 }
 
+function pushToNavStack(tabId, url) {
+  if (!tabNavStack.has(tabId)) {
+    tabNavStack.set(tabId, { stack: [url], index: 0 });
+    return;
+  }
+  const state = tabNavStack.get(tabId);
+  const { stack, index } = state;
+  
+  // Check if going back natively
+  if (index > 0 && isSameUrlRelaxed(stack[index - 1], url)) {
+    state.index = index - 1;
+    return;
+  }
+  
+  // Check if going forward natively
+  if (index < stack.length - 1 && isSameUrlRelaxed(stack[index + 1], url)) {
+    state.index = index + 1;
+    return;
+  }
+  
+  // Check if reloading or re-navigating to current page
+  if (isSameUrlRelaxed(stack[index], url)) {
+    state.stack[index] = url;
+    return;
+  }
+  
+  // New navigation: truncate forward history and push new URL
+  const newStack = stack.slice(0, index + 1);
+  newStack.push(url);
+  if (newStack.length > 100) {
+    newStack.shift();
+    state.index = Math.max(0, state.index - 1);
+  } else {
+    state.index = newStack.length - 1;
+  }
+  state.stack = newStack;
+}
+
+function recordTransition(tabId, currentUrl, resolved) {
+  if (!tabNavStack.has(tabId)) {
+    tabNavStack.set(tabId, { stack: [resolved], index: 0 });
+    return;
+  }
+  const state = tabNavStack.get(tabId);
+  // Update the current slot with active view URL before it gets destroyed
+  state.stack[state.index] = currentUrl;
+  // Truncate any forward history
+  state.stack = state.stack.slice(0, state.index + 1);
+  // Push the resolved transition URL
+  state.stack.push(resolved);
+  state.index = state.stack.length - 1;
+}
+
 function softwareGoBack(winState, tabId) {
-  const stack = tabNavStack.get(tabId);
-  if (!stack || stack.length <= 1) return false;
-  stack.pop(); // pop current
-  const prevUrl = stack[stack.length - 1]; // peek previous
+  const state = tabNavStack.get(tabId);
+  if (!state || state.index <= 0) return false;
   
   const v = winState.views.get(tabId);
   if (v) {
+    // Save current active URL in slot
+    state.stack[state.index] = v.webContents.getURL();
+    
+    // Get target URL
+    const prevUrl = state.stack[state.index - 1];
+    
     const isCurrentlyInternal = v.webContents.getURL().startsWith('file://') || v.webContents.getURL().startsWith('kiyo://');
     const isNavigatingInternal = prevUrl.startsWith('file://') || prevUrl.startsWith('kiyo://');
+    
+    // Update the index
+    state.index = state.index - 1;
     
     if (isCurrentlyInternal !== isNavigatingInternal) {
       winState.window.contentView.removeChildView(v);
@@ -158,6 +231,38 @@ function softwareGoBack(winState, tabId) {
   return false;
 }
 
+function softwareGoForward(winState, tabId) {
+  const state = tabNavStack.get(tabId);
+  if (!state || state.index >= state.stack.length - 1) return false;
+  
+  const v = winState.views.get(tabId);
+  if (v) {
+    // Save current active URL in slot
+    state.stack[state.index] = v.webContents.getURL();
+    
+    // Get target URL
+    const nextUrl = state.stack[state.index + 1];
+    
+    const isCurrentlyInternal = v.webContents.getURL().startsWith('file://') || v.webContents.getURL().startsWith('kiyo://');
+    const isNavigatingInternal = nextUrl.startsWith('file://') || nextUrl.startsWith('kiyo://');
+    
+    // Update the index
+    state.index = state.index + 1;
+    
+    if (isCurrentlyInternal !== isNavigatingInternal) {
+      winState.window.contentView.removeChildView(v);
+      winState.views.delete(tabId);
+      viewToWindow.delete(v.webContents.id);
+      v.webContents.destroy();
+      createView(winState, tabId, nextUrl);
+    } else {
+      v.webContents.loadURL(nextUrl).catch(e => console.error('[kiyo] soft forward:', e.message));
+    }
+    return true;
+  }
+  return false;
+}
+
 function broadcastNavState(winState, tabId) {
   if (!winState || !winState.window || winState.window.isDestroyed()) return;
   const v = winState.views.get(tabId);
@@ -166,11 +271,12 @@ function broadcastNavState(winState, tabId) {
   const webCanBack = v.webContents.canGoBack();
   const webCanForward = v.webContents.canGoForward();
   
-  const stack = tabNavStack.get(tabId);
-  const softCanBack = stack && stack.length > 1;
+  const state = tabNavStack.get(tabId);
+  const softCanBack = state && state.index > 0;
+  const softCanForward = state && state.index < state.stack.length - 1;
   
   const canBack = webCanBack || softCanBack;
-  const canForward = webCanForward;
+  const canForward = webCanForward || softCanForward;
   
   winState.window.webContents.send('nav-state', tabId, canBack, canForward);
 }
@@ -676,16 +782,6 @@ ipcMain.on('show-tab-menu', (event, id, currentGroupId, groupsList) => {
     { label: 'New Group...', click: () => winState?.window.webContents.send('tab-menu-action', id, 'new-group') }
   ];
 
-ipcMain.on('toggle-tab-mute', (event, id) => {
-  const winState = getWinState(event.sender);
-  if (!winState) return;
-  const v = winState.views.get(id);
-  if (v && v.webContents && !v.webContents.isDestroyed()) {
-    const isMuted = v.webContents.isAudioMuted();
-    v.webContents.setAudioMuted(!isMuted);
-  }
-});
-
   if (groupsList && groupsList.length > 0) {
     addGroupSubmenu.push({ type: 'separator' });
     groupsList.forEach(g => {
@@ -724,6 +820,16 @@ ipcMain.on('toggle-tab-mute', (event, id) => {
 
   const menu = Menu.buildFromTemplate(template);
   menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.on('toggle-tab-mute', (event, id) => {
+  const winState = getWinState(event.sender);
+  if (!winState) return;
+  const v = winState.views.get(id);
+  if (v && v.webContents && !v.webContents.isDestroyed()) {
+    const isMuted = v.webContents.isAudioMuted();
+    v.webContents.setAudioMuted(!isMuted);
+  }
 });
 
 ipcMain.on('show-context-menu', (event) => {
@@ -784,6 +890,7 @@ ipcMain.on('navigate', (event, url) => {
     viewToWindow.delete(v.webContents.id);
     v.webContents.destroy();
 
+    recordTransition(id, currentUrl, resolved);
     createView(winState, id, resolved);
   } else {
     v.webContents.loadURL(resolved).catch(e => console.error('[kiyo]', e.message));
@@ -834,8 +941,12 @@ ipcMain.on('go-forward', (event) => {
   if (!winState) return;
   const tabId = winState.activeViewId;
   const v = winState.views.get(tabId);
-  if (v?.webContents.canGoForward()) {
+  if (!v) return;
+
+  if (v.webContents.canGoForward()) {
     v.webContents.goForward();
+  } else {
+    softwareGoForward(winState, tabId);
   }
   setTimeout(() => broadcastNavState(winState, tabId), 50);
 });
@@ -843,7 +954,7 @@ ipcMain.on('go-forward', (event) => {
 ipcMain.on('reader-go-back', (event) => {
   const winState = getWinState(event.sender);
   if (!winState) return;
-  const tabId = winState.activeViewId;
+  const tabId = getTabIdByWebContents(event.sender) || winState.activeViewId;
   const article = readerArticles.get(tabId);
   if (article && article.url) {
     const targetUrl = article.url;
@@ -851,6 +962,19 @@ ipcMain.on('reader-go-back', (event) => {
     
     const v = winState.views.get(tabId);
     if (v) {
+      // Save current reader URL and update the stack pointer to targetUrl
+      const state = tabNavStack.get(tabId);
+      if (state) {
+        state.stack[state.index] = v.webContents.getURL();
+        if (state.index > 0 && state.stack[state.index - 1] === targetUrl) {
+          state.index = state.index - 1;
+        } else {
+          state.stack = state.stack.slice(0, state.index);
+          state.stack.push(targetUrl);
+          state.index = state.stack.length - 1;
+        }
+      }
+      
       const isCurrentlyInternal = true;
       const isNavigatingInternal = targetUrl.startsWith('file://') || targetUrl.startsWith('kiyo://');
       
@@ -1047,6 +1171,11 @@ function createView(winState, id, url, lazy = false) {
   winState.views.set(id, view);
   viewToWindow.set(view.webContents.id, winState);
   pushToNavStack(id, url);
+
+  if (winState.activeViewId === id && !lazy) {
+    winState.window.contentView.addChildView(view);
+    updateActiveViewBounds(winState);
+  }
 
   // ── Browser View Security Hardening ──────────────────────────────────────
   // Intercept window.open calls to deny native popups and launch as regular tabs
@@ -1290,14 +1419,14 @@ function wakeTab(winState, id) {
   const data = sleepedTabs.get(id);
   if (!data) return;
   sleepedTabs.delete(id);
-  createView(winState, id, data.url);
+  createView(winState, id, data.url, true); // Create view in lazy (pending) state
   winState.window.webContents.send('tab-woke', id, data.url);
 }
 
 function switchView(winState, id) {
   if (sleepedTabs.has(id)) {
     wakeTab(winState, id);
-    return;
+    // Do not return; continue below to activate and load the awakened view linearly
   }
 
   const prevId = winState.activeViewId;
@@ -1587,6 +1716,8 @@ app.whenReady().then(() => {
                 event.preventDefault();
                 if (v.webContents.canGoForward()) {
                   v.webContents.goForward();
+                } else {
+                  softwareGoForward(winState, tabId);
                 }
                 setTimeout(() => broadcastNavState(winState, tabId), 50);
                 return;

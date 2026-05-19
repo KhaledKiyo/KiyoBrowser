@@ -23,18 +23,30 @@ module.exports = function registerExtensionsIPC(ipcMain, ctx) {
   // Install from unpacked directory (developer mode)
   ipcMain.handle('ext-install-unpacked', async (_, dirPath) => {
     try {
-      const ext = await session.defaultSession.loadExtension(dirPath, { allowFileAccess: true });
-      // Copy to persistent extensions folder
-      const destDir = path.join(ctx.EXTENSIONS_PATH, ext.id);
-      if (!fs.existsSync(destDir)) {
-        fs.cpSync(dirPath, destDir, { recursive: true });
+      // 1. Load extension from raw user directory to find its ID
+      const tempExt = await session.defaultSession.loadExtension(dirPath, { allowFileAccess: true });
+      const extId = tempExt.id;
+      const manifest = tempExt.manifest;
+
+      // 2. Unload the raw directory instance immediately
+      session.defaultSession.removeExtension(extId);
+
+      // 3. Copy the extension to the persistent folder
+      const destDir = path.join(ctx.EXTENSIONS_PATH, extId);
+      if (fs.existsSync(destDir)) {
+        fs.rmSync(destDir, { recursive: true, force: true });
       }
+      fs.cpSync(dirPath, destDir, { recursive: true });
+
+      // 4. Load extension permanently from the stable, persistent directory
+      await session.defaultSession.loadExtension(destDir, { allowFileAccess: true });
+
       ctx.broadcast('ext-installed', {
-        id: ext.id,
-        name: ext.manifest.name,
-        version: ext.manifest.version,
+        id: extId,
+        name: manifest.name,
+        version: manifest.version,
       });
-      return { success: true, id: ext.id };
+      return { success: true, id: extId };
     } catch (e) {
       return { success: false, error: e.message };
     }
@@ -46,15 +58,31 @@ module.exports = function registerExtensionsIPC(ipcMain, ctx) {
       const zip = new AdmZip(zipPath);
       const manifestEntry = zip.getEntry('manifest.json');
       if (!manifestEntry) return { success: false, error: 'Not a valid extension — missing manifest.json' };
-      const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
-      // Use name-based temp ID before Electron assigns real ID
+
+      // 1. Extract to a transient extraction directory inside EXTENSIONS_PATH
       const tempDir = path.join(ctx.EXTENSIONS_PATH, '_installing_' + Date.now());
       zip.extractAllTo(tempDir, true);
-      const ext = await session.defaultSession.loadExtension(tempDir, { allowFileAccess: true });
-      const finalDir = path.join(ctx.EXTENSIONS_PATH, ext.id);
+
+      // 2. Load transient instance to find its assigned ID
+      const tempExt = await session.defaultSession.loadExtension(tempDir, { allowFileAccess: true });
+      const extId = tempExt.id;
+      const manifest = tempExt.manifest;
+
+      // 3. Unload the transient instance
+      session.defaultSession.removeExtension(extId);
+
+      // 4. Move transient folder to final folder named after its ID
+      const finalDir = path.join(ctx.EXTENSIONS_PATH, extId);
+      if (fs.existsSync(finalDir)) {
+        fs.rmSync(finalDir, { recursive: true, force: true });
+      }
       fs.renameSync(tempDir, finalDir);
-      ctx.broadcast('ext-installed', { id: ext.id, name: ext.manifest.name, version: ext.manifest.version });
-      return { success: true, id: ext.id };
+
+      // 5. Load extension permanently from the final, stable directory
+      await session.defaultSession.loadExtension(finalDir, { allowFileAccess: true });
+
+      ctx.broadcast('ext-installed', { id: extId, name: manifest.name, version: manifest.version });
+      return { success: true, id: extId };
     } catch (e) {
       return { success: false, error: e.message };
     }
