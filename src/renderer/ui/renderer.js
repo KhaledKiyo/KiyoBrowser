@@ -1653,3 +1653,32 @@ async function refreshExtensionToolbar() {
     extToolbar.appendChild(btn);
   });
 }
+
+// ─── Sizing and Bounds Synchronization ───────────────────────────────────────
+if (window.electronAPI) {
+  const browserContent = document.getElementById('browser-content');
+  if (browserContent) {
+    const sendBounds = () => {
+      const rect = browserContent.getBoundingClientRect();
+      window.electronAPI.updateViewBounds({
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height))
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      sendBounds();
+    });
+    resizeObserver.observe(browserContent);
+
+    // Also sync bounds immediately on window load
+    window.addEventListener('load', sendBounds);
+
+    // In case DOM content is already parsed and load event fired, send bounds immediately
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      sendBounds();
+    }
+  }
+}

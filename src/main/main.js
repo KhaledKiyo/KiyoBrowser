@@ -538,31 +538,6 @@ async function createWindow(isPrivate = false, restoredSession = null) {
     _resizeTimer = setTimeout(() => updateActiveViewBounds(winState), 16);
   });
 
-  win.on('enter-full-screen', () => {
-    updateActiveViewBounds(winState);
-    setTimeout(() => updateActiveViewBounds(winState), 50);
-    setTimeout(() => updateActiveViewBounds(winState), 200);
-    setTimeout(() => updateActiveViewBounds(winState), 500);
-    setTimeout(() => updateActiveViewBounds(winState), 1000);
-  });
-
-  win.on('leave-full-screen', () => {
-    if (winState.htmlFullscreenTabId) {
-      const oldFullscreenId = winState.htmlFullscreenTabId;
-      winState.htmlFullscreenTabId = null;
-      safeSend(win, 'html-fullscreen-state', oldFullscreenId, false);
-      const v = winState.views.get(winState.activeViewId);
-      if (v && v.webContents && !v.webContents.isDestroyed()) {
-        v.webContents.executeJavaScript('document.exitFullscreen().catch(() => {})');
-      }
-    }
-    updateActiveViewBounds(winState);
-    setTimeout(() => updateActiveViewBounds(winState), 50);
-    setTimeout(() => updateActiveViewBounds(winState), 200);
-    setTimeout(() => updateActiveViewBounds(winState), 500);
-    setTimeout(() => updateActiveViewBounds(winState), 1000);
-  });
-
   // ── CSP ─────────────────────────────────────────────────────────────────────
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     if (details.url.startsWith('file://')) {
@@ -726,6 +701,14 @@ ipcMain.on('update-geometry', (event, geometry) => {
   if (winState && SETTING_SCHEMA.geometry(geometry)) {
     settings.geometry = geometry;
     saveSettings();
+    updateActiveViewBounds(winState);
+  }
+});
+
+ipcMain.on('update-view-bounds', (event, bounds) => {
+  const winState = getWinState(event.sender);
+  if (winState) {
+    winState.lastViewBounds = bounds;
     updateActiveViewBounds(winState);
   }
 });
@@ -1426,10 +1409,18 @@ function createView(winState, id, url, lazy = false) {
     winState.htmlFullscreenTabId = null;
     if (winState.window && !winState.window.isDestroyed()) {
       winState.window.setFullScreen(false);
+      winState.window.setResizable(true);
+      winState.window.setMaximizable(true);
       safeSend(winState.window, 'html-fullscreen-state', id, false);
     }
     updateActiveViewBounds(winState);
-    setTimeout(() => updateActiveViewBounds(winState), 100);
+    setTimeout(() => {
+      if (winState.window && !winState.window.isDestroyed()) {
+        winState.window.setResizable(true);
+        winState.window.setMaximizable(true);
+        updateActiveViewBounds(winState);
+      }
+    }, 100);
     setTimeout(() => updateActiveViewBounds(winState), 300);
     setTimeout(() => updateActiveViewBounds(winState), 600);
   });
@@ -1589,24 +1580,7 @@ function updateActiveViewBounds(winState) {
   if (!winState.window || !winState.activeViewId) return;
   const v = winState.views.get(winState.activeViewId);
   if (!v) return;
-  
-  let width, height;
-  if (winState.window.isFullScreen()) {
-    try {
-      const { screen } = require('electron');
-      const display = screen.getDisplayMatching(winState.window.getBounds());
-      width = display.bounds.width;
-      height = display.bounds.height;
-    } catch (err) {
-      const bounds = winState.window.getContentBounds();
-      width = bounds.width;
-      height = bounds.height;
-    }
-  } else {
-    const bounds = winState.window.getContentBounds();
-    width = bounds.width;
-    height = bounds.height;
-  }
+  const { width, height } = winState.window.getContentBounds();
   
   if (winState.htmlFullscreenTabId === winState.activeViewId) {
     v.setBounds({
@@ -1615,24 +1589,38 @@ function updateActiveViewBounds(winState) {
       width: width,
       height: height,
     });
-    if (v.webContents && !v.webContents.isDestroyed()) {
-      try { v.webContents.invalidate(); } catch (e) {}
-    }
+    try {
+      const parent = winState.window.contentView;
+      parent.removeChildView(v);
+      parent.addChildView(v);
+    } catch (e) {}
     return;
   }
 
-  const headerH = settings.compactUi ? 44 : Math.round(settings.geometry.headerHeight);
-  const sbW = settings.compactUi ? 60 : Math.round(settings.geometry.sidebarWidth);
-  const isRight = settings.sidebarPosition === 'right';
-  v.setBounds({
-    x: isRight ? 0 : sbW,
-    y: headerH,
-    width: Math.max(1, Math.round(width - sbW)),
-    height: Math.max(1, Math.round(height - headerH)),
-  });
-  if (v.webContents && !v.webContents.isDestroyed()) {
-    try { v.webContents.invalidate(); } catch (e) {}
+  if (winState.lastViewBounds) {
+    v.setBounds({
+      x: winState.lastViewBounds.x,
+      y: winState.lastViewBounds.y,
+      width: winState.lastViewBounds.width,
+      height: winState.lastViewBounds.height
+    });
+  } else {
+    const headerH = settings.compactUi ? 44 : Math.round(settings.geometry.headerHeight);
+    const sbW = settings.compactUi ? 60 : Math.round(settings.geometry.sidebarWidth);
+    const isRight = settings.sidebarPosition === 'right';
+    v.setBounds({
+      x: isRight ? 0 : sbW,
+      y: headerH,
+      width: Math.max(1, Math.round(width - sbW)),
+      height: Math.max(1, Math.round(height - headerH)),
+    });
   }
+
+  try {
+    const parent = winState.window.contentView;
+    parent.removeChildView(v);
+    parent.addChildView(v);
+  } catch (e) {}
 }
 
 function setupSecureDNS(sess) {

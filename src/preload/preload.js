@@ -150,6 +150,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onExtInstalled: (cb) => on('ext-installed', (_, data) => cb(data)),
   onExtRemoved: (cb) => on('ext-removed', (_, id) => cb(id)),
   onExtCreatedTab: (cb) => on('extension-created-tab', (_, id, url) => cb(id, url)),
+
+  // ── Layout Sizing Synchronization ──────────────────────────────────────────
+  updateViewBounds: (rect) => ipcRenderer.send('update-view-bounds', rect),
 });
 
 // Submit listener to capture passwords

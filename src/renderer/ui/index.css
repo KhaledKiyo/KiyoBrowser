@@ -67,6 +67,7 @@ html.compact-ui body .new-tab-top-btn {
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
 .browser-sidebar {
   width: var(--sidebar-width);
+  flex-shrink: 0;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
